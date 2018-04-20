@@ -1,11 +1,6 @@
 import math
 import numpy as np
 
-import torch
-import torch.nn as nn
-import torch.nn.functional as F
-from torch.autograd import Variable
-
 import sys
 import argparse
 
@@ -98,7 +93,6 @@ def read_network(args):
     r_t = last_layer
     return r_t, memory
 
-# TODO: remember memory here needs to be a tuple
 def context_network(args, s_t, r_t, memory, old_c_t, extras, m0, ctx_state_tuple,write_type='lstm'):
 
     with tf.variable_scope('contextnet'):

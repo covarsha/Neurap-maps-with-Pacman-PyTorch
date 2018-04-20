@@ -106,49 +106,49 @@ class ActorCritic:
 
 
 
-class NeuralMapPolicy(object):
+# class NeuralMapPolicy(object):
 
-    def __init__(self, args, sess, ob_space, ac_space, nbatch, nsteps, nlstm=256, reuse=False):
-        nenv = nbatch // nsteps
+#     def __init__(self, args, sess, ob_space, ac_space, nbatch, nsteps, nlstm=256, reuse=False):
+#         nenv = nbatch // nsteps
 
-        self.nmap = NeuralMap(...)
+#         self.nmap = NeuralMap(...)
 
-        self.curr_memory = 0.01 * np.random.randn(1, args['memory_channels'], args['memory_size'], args['memory_size'])
-        self.curr_c_t = np.expand_dims(old_c_t, 0)
+#         self.curr_memory = 0.01 * np.random.randn(1, args['memory_channels'], args['memory_size'], args['memory_size'])
+#         self.curr_c_t = np.expand_dims(old_c_t, 0)
 
-        pi = fc(nmap.feats, env.action_space[0], activation_fn=tf.nn.softmax)
+#         pi = fc(nmap.feats, env.action_space[0], activation_fn=tf.nn.softmax)
 
-        self.pdtype = make_pdtype(env.action_space)
-        self.pd = self.pdtype.pdfromflat(pi)
+#         self.pdtype = make_pdtype(env.action_space)
+#         self.pd = self.pdtype.pdfromflat(pi)
 
-        v0 = vf[:, 0]
-        a0 = self.pd.sample()
-        neglogp0 = self.pd.neglogp(a0)
-        self.initial_state = np.zeros((nenv, nlstm*2), dtype=np.float32)
+#         v0 = vf[:, 0]
+#         a0 = self.pd.sample()
+#         neglogp0 = self.pd.neglogp(a0)
+#         self.initial_state = np.zeros((nenv, nlstm*2), dtype=np.float32)
 
-        def step(ob, state, mask):
-            return sess.run([a0, v0, snew, neglogp0], {X:ob, S:state, M:mask})
+#         def step(ob, state, mask):
+#             return sess.run([a0, v0, snew, neglogp0], {X:ob, S:state, M:mask})
 
-        def value(ob, state, mask):
-            v, self.curr_memory, self.curr_c_t = sess.run([
-                v0, self.nmap.memory, self.nmap.ctx_state_new], feed_dict={
-                    self.nmap.inputs: state,
-                    self.nmap.memory: memory,
-                    self.nmap.extras['pos']: info['curr_loc'],
-                    self.nmap.extras['p_pos']: info['past_loc'],
-                    self.nmap.extras['orientation']: [info['curr_orientation']],
-                    self.nmap.extras['p_orientation']: [info['past_orientation']],
-                    self.nmap.extras['timestep']: [x],
-                    self.nmap.old_c_t: old_c_t,
-                    self.nmap.ctx_state_input: ctx_state
-            })
-            self.curr_memory = memory_new
-            return v
+#         def value(ob, state, mask):
+#             v, self.curr_memory, self.curr_c_t = sess.run([
+#                 v0, self.nmap.memory, self.nmap.ctx_state_new], feed_dict={
+#                     self.nmap.inputs: state,
+#                     self.nmap.memory: memory,
+#                     self.nmap.extras['pos']: info['curr_loc'],
+#                     self.nmap.extras['p_pos']: info['past_loc'],
+#                     self.nmap.extras['orientation']: [info['curr_orientation']],
+#                     self.nmap.extras['p_orientation']: [info['past_orientation']],
+#                     self.nmap.extras['timestep']: [x],
+#                     self.nmap.old_c_t: old_c_t,
+#                     self.nmap.ctx_state_input: ctx_state
+#             })
+#             self.curr_memory = memory_new
+#             return v
 
-        self.X = X
-        self.M = M
-        self.S = S
-        self.pi = pi
-        self.vf = vf
-        self.step = step
-        self.value = value
+#         self.X = X
+#         self.M = M
+#         self.S = S
+#         self.pi = pi
+#         self.vf = vf
+#         self.step = step
+#         self.value = value
