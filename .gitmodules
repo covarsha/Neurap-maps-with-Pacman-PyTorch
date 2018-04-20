@@ -1,0 +1,6 @@
+[submodule "baselines"]
+	path = baselines
+	url = https://github.com/openai/baselines
+[submodule "PacmanGym"]
+	path = PacmanGym
+	url = https://github.com/sohamghosh121/PacmanGym
