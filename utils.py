@@ -214,7 +214,6 @@ def write_network(args, s_t, r_t, c_t, memory):
             dtype=tf.float32,
         )
 
-        # TODO: this will NOT work (slice assignment)
         memory[:,:,write_py,write_px].assign(w_t)
     
     return w_t, memory

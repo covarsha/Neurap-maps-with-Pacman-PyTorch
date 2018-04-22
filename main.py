@@ -4,7 +4,7 @@ import tensorflow as tf
 import numpy as np
 import argparse
 import sys
-from nmap import NeuralMap, ActorCritic
+from nmap import NeuralMapModel
 
 
 def parse_arguments():
@@ -40,34 +40,6 @@ def parse_arguments():
     parser.add_argument('--env',dest='env',type=str, default='BerkeleyPacmanPO-v0')
     return parser.parse_args()
 
-
-def train(args, ac, nmap, env):
-    optim = tf.train.AdamOptimizer()
-    state = env.reset(layout='smallGrid_noGhosts')
-    with tf.Session() as sess:
-        sess.run(tf.global_variables_initializer())
-        old_c_t = np.zeros((1,256))
-        ctx_state = np.zeros((2,1,args['memory_channels']))
-        for x in range(5):
-            s, r, done, info = env.step(1)
-            s = np.expand_dims(s, 0)
-            memory = 0.01 * np.random.randn(1, args['memory_channels'], args['memory_size'], args['memory_size'])
-            old_c_t = np.expand_dims(old_c_t, 0)
-            memory, old_c_t, ctx_cx = sess.run([
-                    nmap.memory, 
-                    nmap.c_t, 
-                    nmap.ctx_state_new], feed_dict={
-                nmap.inputs: s,
-                nmap.memory: memory,
-                nmap.extras['pos']: info['curr_loc'],
-                nmap.extras['p_pos']: info['past_loc'],
-                nmap.extras['orientation']: [info['curr_orientation']],
-                nmap.extras['p_orientation']: [info['past_orientation']],
-                nmap.extras['timestep']: [x],
-                nmap.old_c_t: old_c_t,
-                nmap.ctx_state_input: ctx_state
-            })
-            
 
 def main(args):
     seed = 1
@@ -111,10 +83,8 @@ def main(args):
     env = argment.env
 
     env = gym.make('BerkeleyPacmanPO-v0')
-    nmap = NeuralMap(args, env, input_dims)
-    ac = ActorCritic(nmap.feats)
-
-    train(args, ac, nmap, env)
+    nmap_model = NeuralMapModel(args, env, input_dims)
+    nmap_model.run()
     
 if __name__ == '__main__':
     main(sys.argv)
