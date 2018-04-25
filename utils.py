@@ -122,9 +122,7 @@ def context_network(args, s_t, r_t, memory, old_c_t, extras, m0, ctx_state_tuple
         
         # ctx_hx, ctx_cx = ctx_lstm(input_vec)
         # TODO: check if this is correct
-        
-
-        cont_hx, ctx_state_new = tf.nn.dynamic_rnn(ctx_lstm, input_vec,
+        cont_hx, ctx_state_new_tuple = tf.nn.dynamic_rnn(ctx_lstm, input_vec,
                                         initial_state=ctx_state_tuple,
                                         dtype=tf.float32)
 
@@ -197,7 +195,7 @@ def context_network(args, s_t, r_t, memory, old_c_t, extras, m0, ctx_state_tuple
             axis=2
         )
 
-    return c_t, cont_hx, shift_memory, ctx_state_new
+    return c_t, cont_hx, shift_memory, ctx_state_new_tuple
 
 
 def write_network(args, s_t, r_t, c_t, memory):

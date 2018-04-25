@@ -68,7 +68,7 @@ class NeuralMap(object):
 
         self.old_c_t = tf.placeholder(tf.float32, shape=[1,1, args['memory_channels']], name='old_c_t')
 
-        self.ctx_state_input = tf.placeholder(tf.float32, [2, 1, args['memory_channels']])
+        self.ctx_state_input = tf.placeholder(tf.float32, [2, 1, args['memory_channels']], name='ctx_state_input')
         self.ctx_state_tuple = tf.nn.rnn_cell.LSTMStateTuple(self.ctx_state_input[0], self.ctx_state_input[1])
         self.c_t, self.ctx_cx, self.shift_memory, self.ctx_state_new = context_network(args,
             self.s_t,
@@ -112,7 +112,7 @@ class NeuralMapPolicy(object):
 
         initial_memory = 0.01 * np.random.randn(1,256, args['memory_size'], args['memory_size'])
         initial_old_c_t = np.zeros((1, 1, args['memory_channels']))
-        initial_ctx_cx = np.zeros((2, 1, args['memory_channels']))
+        initial_ctx_cx = (np.zeros((1, args['memory_channels'])), np.zeros((1, args['memory_channels'])))
         self.initial_state = (initial_memory, initial_old_c_t, initial_ctx_cx)
 
 
