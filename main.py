@@ -1,10 +1,43 @@
+#!/usr/bin/env python3
 import gym
 import gym_pacman
-import tensorflow as tf
-import numpy as np
 import argparse
 import sys
-from nmap import NeuralMapModel
+from baselines import logger
+# from baselines.common.vec_env.vec_frame_stack import VecFrameStack
+import nmap_ppo as ppo
+import multiprocessing
+import tensorflow as tf
+
+from nmap import NeuralMapPolicy
+
+
+def train(args, num_timesteps):
+
+    ncpu = multiprocessing.cpu_count()
+    if sys.platform == 'darwin': ncpu //= 2
+    config = tf.ConfigProto(allow_soft_placement=True,
+                            intra_op_parallelism_threads=ncpu,
+                            inter_op_parallelism_threads=ncpu)
+    config.gpu_options.allow_growth = True #pylint: disable=E1101
+    tf.Session(config=config).__enter__()
+
+    # TODO: make it possible for multiple environments
+    # env = VecFrameStack(make_atari_env(env_id, 8, seed), 4)
+    env = gym.make('BerkeleyPacmanPO-v0')
+
+    args['max_maze_size'] = env.MAX_MAZE_SIZE
+    args['maze_size'] = env.maze_size
+    
+    # policy = NeuralMapPolicy(args, env, input_dims)
+
+    ppo.learn(env=env, nsteps=12, nminibatches=1,
+        lam=0.95, gamma=0.99, noptepochs=4, log_interval=1,
+        ent_coef=.01,
+        lr=lambda f : f * 2.5e-4,
+        cliprange=lambda f : f * 0.1,
+        total_timesteps=int(num_timesteps * 1.1),
+        nmap_args=args)
 
 
 def parse_arguments():
@@ -41,6 +74,8 @@ def parse_arguments():
     return parser.parse_args()
 
 
+
+
 def main(args):
     seed = 1
     argment = parse_arguments()
@@ -72,8 +107,10 @@ def main(args):
     args['nl'] = []
     args['n_hid'] = []
     args['seed'] = seed
-    input_dims = [84,84,3]
+    args['input_dims'] = [84,84,3]
     args['lr'] = 0.0001
+    args['max_maze_size'] = (11,11)
+    args['maze_size'] = (7,7)
     args['num_updates'] = 7500
     args['max_episode_length'] = 50
     args['gamma'] = 0.001
@@ -82,9 +119,9 @@ def main(args):
     output_size = argment.output_size
     env = argment.env
 
-    env = gym.make('BerkeleyPacmanPO-v0')
-    nmap_model = NeuralMapModel(args, env, input_dims)
-    nmap_model.run()
-    
+    logger.configure()
+    train(args, num_timesteps=1e5)
+
 if __name__ == '__main__':
     main(sys.argv)
+    
