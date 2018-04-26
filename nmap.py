@@ -52,25 +52,25 @@ class NeuralMap(object):
 
         # READ NETWORK
         self.r_t, self.memory = read_network(args)
-        max_maze_size = max(args['max_maze_size'])
+        self.max_maze_size = max(args['max_maze_size'])
+        self.maze_size = max(args['maze_size'])
+        self.map_scale = 2.0 if args['egocentric'] else 1.0
         # TODO: remember to increment timestep when training
         self.extras = {
-            'pos': tf.placeholder(tf.float32, shape=[2], name='pos'),
-            'p_pos': tf.placeholder(tf.float32, shape=[2], name='p_pos'),
-            'orientation': tf.placeholder(tf.float32, shape=[1], name='orientation'),
-            'p_orientation': tf.placeholder(tf.float32, shape=[1], name='p_orientation'),
-            'timestep': tf.placeholder(tf.int64, shape=[1], name='timestep'),
-            'max_maze_size': tf.constant(max_maze_size, dtype=tf.float32, name='max_maze_size'),
+            'pos': tf.placeholder(tf.float32, shape=[None, 2], name='pos'),
+            'p_pos': tf.placeholder(tf.float32, shape=[None, 2], name='p_pos'),
+            'timestep': tf.placeholder(tf.int64, shape=[None, 1], name='timestep'),
+            'max_maze_size': tf.constant(self.max_maze_size, dtype=tf.float32, name='max_maze_size'),
             'maze_size': tf.constant(args['maze_size'], dtype=tf.float32, name='maze_size')
         }
 
         self.m0 = tf.Variable(0.01 * np.random.randn(1,args['memory_channels'], 1, 1))
 
-        self.old_c_t = tf.placeholder(tf.float32, shape=[1,1, args['memory_channels']], name='old_c_t')
+        self.old_c_t = tf.placeholder(tf.float32, shape=[None,1, args['memory_channels']], name='old_c_t')
 
-        self.ctx_state_input = tf.placeholder(tf.float32, [2, 1, args['memory_channels']], name='ctx_state_input')
+        self.ctx_state_input = tf.placeholder(tf.float32, [2, None, args['memory_channels']], name='ctx_state_input')
         self.ctx_state_tuple = tf.nn.rnn_cell.LSTMStateTuple(self.ctx_state_input[0], self.ctx_state_input[1])
-        self.c_t, self.ctx_cx, self.shift_memory, self.ctx_state_new = context_network(args,
+        self.c_t, self.ctx_cx, self.ctx_state_new = context_network(args,
             self.s_t,
             self.r_t,
             self.memory,
@@ -79,17 +79,65 @@ class NeuralMap(object):
             self.m0,
             self.ctx_state_tuple)
 
-        self.w_t, self.updated_memory = write_network(
+        self.w_t = write_network(
             args,
             self.s_t,
             self.r_t,
             self.c_t,
-            self.shift_memory)
+            self.memory)
 
         self.feats = fc(
             tf.concat([tf.squeeze(self.ctx_cx, 0), self.c_t, tf.squeeze(self.w_t, 0)], 1),
             args['memory_channels'],
             activation_fn=tf.nn.elu) 
+
+    def shift_memory(self, memory, pos, lpos):
+        pos, lpos = np.array(pos), np.array(lpos)
+        velocity = pos - lpos
+        rescale_func = None
+        def rescale_max(p):
+            return p/(self.max_maze_size * self.map_scale) * memory.shape[2]
+        def rescale_maze(p):
+            return p/(self.maze_size * self.map_scale) * memory.shape[2]
+        if self.rescale_max:
+            # Rescale the position data to the maximum map size
+            rescale_func = rescale_max
+        else:
+            # Rescale the position data to the current map size
+            rescale_func = rescale_maze
+
+        scaled_pos = rescale_func(pos)
+        scaled_p_pos = rescale_func(lpos)
+        scaled_velocity = scaled_pos - scaled_p_pos
+
+        shift_memory = 0.01 * np.random.randn(memory.shape[0], memory.shape[1], memory.shape[2], memory.shape[3])
+        mem_sz = memory.shape[2]
+        srcboundy = (
+                    np.maximum(velocity[:,0], 0.0).astype(np.int32), 
+                    np.minimum(mem_sz + velocity[:,0], mem_sz).astype(np.int32)
+            )
+        srcboundx = (
+                np.maximum(velocity[:,1], 0.0).astype(np.int32), 
+                np.minimum(mem_sz + velocity[:,1], mem_sz).astype(np.int32)
+            )
+        dstboundy = (
+                np.maximum(-velocity[:,0], 0.0).astype(np.int32), 
+                np.minimum(mem_sz - velocity[:,0], mem_sz).astype(np.int32)
+            )
+        dstboundx = (
+                np.maximum(-velocity[:,1], 0.0).astype(np.int32), 
+                np.minimum(mem_sz - velocity[:,1], mem_sz).astype(np.int32)
+            )
+        for ix in range(memory.shape[0]):
+            shift_memory[ix,:,dstboundy[0][ix]:dstboundy[1][ix],dstboundx[0][ix]:dstboundx[1][ix]] = \
+                memory[ix,:,srcboundy[0][ix]:srcboundy[1][ix],srcboundx[0][ix]:srcboundx[1][ix]]
+        return shift_memory
+
+    def write_to_memory(self, memory, w_t):
+        new_memory = np.copy(memory)
+        write_py, write_px = memory.shape[2] // 2, memory.shape[3] // 2
+        new_memory[:,:,write_py,write_px] = w_t
+        return new_memory
 
 class NeuralMapPolicy(object):
     def __init__(self, sess, ob_space, ac_space, args, reuse=False): 
@@ -119,24 +167,30 @@ class NeuralMapPolicy(object):
         def step(obs, state, done):
             obs_img, info = obs
             memory, old_c_t, ctx_state = state
-            return sess.run([
+
+            # shift memory first
+            shift_memory = self.nmap.shift_memory(memory, info['curr_loc'], info['past_loc'])
+
+            a, v0, w_t, c_t, c_new, neglogp = sess.run([
                         self.A,
                         self.v0,
-                        self.nmap.memory,
+                        self.nmap.w_t,
                         self.nmap.c_t,
                         self.nmap.ctx_state_new,
                         self.neglogp,
                     ], feed_dict={
                 self.nmap.inputs: np.expand_dims(obs_img,0),
-                self.nmap.memory: memory,
+                self.nmap.memory: shift_memory,
                 self.nmap.extras['pos']: info['curr_loc'],
                 self.nmap.extras['p_pos']: info['past_loc'],
-                self.nmap.extras['orientation']: [info['curr_orientation']],
-                self.nmap.extras['p_orientation']: [info['past_orientation']],
-                self.nmap.extras['timestep']: [info['step_counter'] % self.max_timestep],
+                self.nmap.extras['timestep']: [[t[0] % self.max_timestep] for t in info['step_counter']],
                 self.nmap.old_c_t: old_c_t,
                 self.nmap.ctx_state_input: ctx_state
             })
+
+            # write to memory here
+            new_memory = self.nmap.write_to_memory(shift_memory, w_t)
+            return a, v0, new_memory, c_t, c_new, neglogp
 
         def value(obs, state, done):
             obs_img, info = obs
@@ -148,9 +202,7 @@ class NeuralMapPolicy(object):
                 self.nmap.memory: memory,
                 self.nmap.extras['pos']: info['curr_loc'],
                 self.nmap.extras['p_pos']: info['past_loc'],
-                self.nmap.extras['orientation']: [info['curr_orientation']],
-                self.nmap.extras['p_orientation']: [info['past_orientation']],
-                self.nmap.extras['timestep']: [info['step_counter'] % self.max_timestep],
+                self.nmap.extras['timestep']: [[t[0] % self.max_timestep] for t in info['step_counter']],
                 self.nmap.old_c_t: old_c_t,
                 self.nmap.ctx_state_input: ctx_state
             })

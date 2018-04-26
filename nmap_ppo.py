@@ -54,40 +54,45 @@ class NeuralMapModel(object):
         # TODO: change for nmaps
         # pass in parameter for info (dictionary)
         def train(lr, cliprange, obs, returns, masks, actions, values, neglogpacs, states=None):
-            # TODO: hahahahahahahahahaha
-            obs, returns, masks, actions, values, neglogpacs = obs[0], [returns[0]], masks[0], actions[0], [values[0]], neglogpacs[0]
-            advs = np.array([returns[0] - values[0]])
+            advs = np.array(returns) - np.array(values[0])
             advs = (advs - advs.mean())/(advs.std() + 1e-8)
-            obs_img, info = obs[0], obs[1]
+            obs_img, info = obs[:,0], obs[:,1]
+            # print(obs_img.shape) # ntimesteps x 84 x 84 x 3
+
+            obs_img = np.array(list(obs_img))
+
+            pos = [i['curr_loc'] for i in info]
+            p_pos = [i['past_loc'] for i in info]
+            step_counter = np.array([i['step_counter'] for i in info]).squeeze()
+
+
             td_map = {
-                train_model.nmap.inputs: np.expand_dims(obs_img,0),
-                train_model.nmap.extras['pos']: info['curr_loc'],
-                train_model.nmap.extras['p_pos']: info['past_loc'],
-                train_model.nmap.extras['orientation']: [info['curr_orientation']],
-                train_model.nmap.extras['p_orientation']: [info['past_orientation']],
-                train_model.nmap.extras['timestep']: [info['step_counter'] % nmap_args['max_timestep']],
+                train_model.nmap.inputs: obs_img,
+                train_model.nmap.extras['pos']: np.squeeze(pos, 1),
+                train_model.nmap.extras['p_pos']: np.squeeze(p_pos, 1),
+                train_model.nmap.extras['timestep']: np.expand_dims([t % nmap_args['max_timestep'] for t in step_counter], 1),
                 CLIPRANGE: cliprange,
                 LR: lr,
-                OLDNEGLOGPAC: neglogpacs,
+                OLDNEGLOGPAC: np.squeeze(neglogpacs),
                 OLDVPRED: values,
                 ADV: advs,
                 R: returns,
-                A: actions
+                A: np.squeeze(actions)
             }
             if states is None:
                 print('asdasdasd')
             else:
-                memory, old_c_t, ctx_state = states[0].squeeze()[0], np.expand_dims(states[1].squeeze()[0], 0), np.expand_dims(states[2].squeeze()[0], 1)
+                memory, old_c_t, ctx_state = states[0].squeeze(), np.expand_dims(states[1].squeeze(), 1), states[2].squeeze()
 
-            td_map[train_model.nmap.memory] = np.expand_dims(memory, 0)
-            td_map[train_model.nmap.old_c_t] = np.expand_dims(old_c_t, 0)
+            ctx_state = np.transpose(ctx_state,(1,0,2))
+
+            td_map[train_model.nmap.memory] = memory
+            td_map[train_model.nmap.old_c_t] = old_c_t
             td_map[train_model.nmap.ctx_state_input] = ctx_state
             return sess.run(
                 [pg_loss, vf_loss, entropy, approxkl, clipfrac, _train],
                 td_map
             )[:-1]
-
-
 
         self.loss_names = ['policy_loss', 'value_loss', 'policy_entropy', 'approxkl', 'clipfrac']
 
@@ -259,7 +264,6 @@ def learn(*, env, nsteps, total_timesteps, ent_coef, lr, nmap_args,
                     end = start + envsperbatch
                     mbenvinds = envinds[start:end]
                     mbflatinds = flatinds[mbenvinds].ravel()
-                    print('states', len(states[0]))
                     
                     slices = (arr[mbflatinds] for arr in (obs, returns, masks, actions, values, neglogpacs))
                     mbstates = (

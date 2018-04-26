@@ -49,7 +49,7 @@ def weights_init(m):
 def basenet(args, input_dims):
     with tf.variable_scope('statenet'):
         inputs = tf.placeholder(tf.float32,
-            shape=[1] + input_dims,
+            shape=[None] + input_dims,
             name='inputs')
         last_layer = inputs
         for l in range(len(args['n_units'])):
@@ -60,7 +60,7 @@ def basenet(args, input_dims):
                 padding="same",
                 activation=string_to_nl(args['nl'][l]))
 
-        last_layer = flatten(last_layer, scope='flatten')
+        last_layer = flatten(last_layer)
 
         for l in range(len(args['n_hid'])):
             last_layer = fc(last_layer, args['n_hid'][l], activation_fn=string_to_nl(args['nl'][l]))
@@ -70,7 +70,7 @@ def basenet(args, input_dims):
 def read_network(args):
     with tf.variable_scope('readnet'):
         memory = tf.placeholder(tf.float32,
-            shape=[1, args['memory_channels'],
+            shape=[None, args['memory_channels'],
                 args['memory_size'],
                 args['memory_size']],
             name='memory'
@@ -84,12 +84,11 @@ def read_network(args):
                 padding="same",
                 activation_fn=string_to_nl(args['nmapr_nl'][l]))
 
-        last_layer = flatten(last_layer, scope='flatten')
-
+        last_layer = flatten(last_layer)
         # TODO: check sharing of activations thingie 
         for l in range(len(args['nmapr_n_hid'])):
             last_layer = fc(last_layer, args['nmapr_n_hid'][l],
-            activation_fn=string_to_nl(args['nmapr_nl'][l]))
+                activation_fn=string_to_nl(args['nmapr_nl'][l]))
     r_t = last_layer
     return r_t, memory
 
@@ -102,23 +101,19 @@ def context_network(args, s_t, r_t, memory, old_c_t, extras, m0, ctx_state_tuple
             name='ctx_lstm')
 
         input_vec = [s_t]
-        if args['use_position']:
-            input_vec.append(extras['pos'])
-        if args['use_orient']:
-            input_vec.append(extras['orientation'])
-        if args['use_velocity']:
-            velocity = extras['pos'] - extras['p_pos']
-            input_vec.append(tf.expand_dims(tf.cast(velocity, tf.float32), 0))
-        if args['use_timestep']:
-            timestep = tf.one_hot(
-                    extras['timestep'],
-                    args['max_timestep'],
-                    on_value=1.0,
-                    off_value=0.0)
-            input_vec.append(timestep)
+
+        velocity = extras['pos'] - extras['p_pos']
+        input_vec.append(tf.cast(velocity, tf.float32))
+
+        timestep = tf.squeeze(tf.one_hot(
+                extras['timestep'],
+                args['max_timestep'],
+                on_value=1.0,
+                off_value=0.0), 1)
+        input_vec.append(timestep)
 
         input_vec.append(r_t)
-        input_vec = tf.expand_dims(tf.concat(input_vec, 1), 0)
+        input_vec = tf.expand_dims(tf.concat(input_vec, 1), 1)
         
         # ctx_hx, ctx_cx = ctx_lstm(input_vec)
         # TODO: check if this is correct
@@ -126,76 +121,35 @@ def context_network(args, s_t, r_t, memory, old_c_t, extras, m0, ctx_state_tuple
                                         initial_state=ctx_state_tuple,
                                         dtype=tf.float32)
 
+
+        # TODO: move these to NeuralMap.shift_memory
         map_scale = tf.constant(1.0)
         if args['egocentric']:
             map_scale *= 2.0
 
-        rescale_func = None
-        def rescale_max(p):
-            return tf.cast(p, tf.float32)/(extras['max_maze_size'] * map_scale) * args['memory_size']
-        def rescale_maze(p):
-            return tf.cast(p, tf.float32)/(extras['maze_size'] * map_scale) * args['memory_size']
-        if args['rescale_max']:
-            # Rescale the position data to the maximum map size
-            rescale_func = rescale_max
-        else:
-            # Rescale the position data to the current map size
-            rescale_func = rescale_maze
-
-        extras['scaled_pos'] = rescale_func(extras['pos'])
-        extras['scaled_p_pos'] = rescale_func(extras['p_pos'])
-        extras['scaled_velocity'] = extras['scaled_pos'] - extras['scaled_p_pos']
-
+        
         # TODO: is do = po - l_po being used anywhere? why not?
-        if args['egocentric']:
-            vel = extras['scaled_velocity'] # vel = [dx, dy]
-            # shift_memory = tf.tile(m0, [1, 1, args['memory_size'], args['memory_size']])
-            srcboundy = (
-                    tf.cast(tf.maximum(0.0, vel[0]), tf.int64), 
-                    tf.cast(tf.minimum(float(args['memory_size']), float(args['memory_size']) + vel[0]), tf.int64)
-                )
-            srcboundx = (
-                    tf.cast(tf.maximum(0.0, vel[1]), tf.int64), 
-                    tf.cast(tf.minimum(float(args['memory_size']), float(args['memory_size']) + vel[1]), tf.int64)
-                )
-            dstboundy = (
-                    tf.cast(tf.maximum(0.0,-vel[0]), tf.int64), 
-                tf.cast(tf.minimum(float(args['memory_size']), float(args['memory_size']) - vel[0]), tf.int64)
-            )
-            dstboundx = (
-                    tf.cast(tf.maximum(0.0,-vel[1]), tf.int64), 
-                    tf.cast(tf.minimum(float(args['memory_size']), float(args['memory_size']) - vel[1]), tf.int64)
-            )
-            
-            shift_memory = tf.Variable(
-                0.01 * np.random.randn(1, args['memory_channels'], args['memory_size'], args['memory_size']),
-                dtype=tf.float32)
 
-            shift_memory[:, :, dstboundy[0]:dstboundy[1], dstboundx[0]:dstboundx[1]].assign(
-                memory[:,:,srcboundy[0]:srcboundy[1],srcboundx[0]:srcboundx[1]])
-
-
-        query = fc(cont_hx, args['memory_channels'], activation_fn=None) # C
+        query = fc(cont_hx, args['memory_channels'], activation_fn=None) # ?xC
         ctx_input = tf.concat([tf.squeeze(input_vec, 0), r_t, tf.squeeze(old_c_t, 0)], 1)
 
 
         # Context Read from memory
-        mem = shift_memory[0]
-        memory_matrix = tf.reshape(mem, [mem.shape[0], -1])
-        context_scores = tf.matmul(tf.squeeze(query, 0), memory_matrix) # (1xC) x (CxWH) --> 1xWH
+        memory_matrix = tf.reshape(memory, [-1, args['memory_size'] * args['memory_size']])
+        context_scores = tf.matmul(tf.squeeze(query, 0), memory_matrix) # (?xC) x (CxWH) --> ?xWH
         context_prob = tf.nn.softmax(context_scores)
-        context_prob_map = tf.reshape(context_prob, (mem.shape[1], mem.shape[2]))
+        context_prob_map = tf.reshape(context_prob, (args['memory_size'], args['memory_size']))
 
         context_prob_map_expand = tf.expand_dims(
             tf.tile(tf.expand_dims(context_prob_map, 0),
             [args['memory_channels'],1,1]), 0)
 
         c_t = tf.reduce_sum(
-            tf.reshape(shift_memory * context_prob_map_expand, (1,args['memory_channels'], -1)),
+            tf.reshape(memory * context_prob_map_expand, (1,args['memory_channels'], -1)),
             axis=2
         )
 
-    return c_t, cont_hx, shift_memory, ctx_state_new_tuple
+    return c_t, cont_hx, ctx_state_new_tuple
 
 
 def write_network(args, s_t, r_t, c_t, memory):
@@ -212,6 +166,5 @@ def write_network(args, s_t, r_t, c_t, memory):
             dtype=tf.float32,
         )
 
-        memory[:,:,write_py,write_px].assign(w_t)
-    
-    return w_t, memory
+
+    return w_t
