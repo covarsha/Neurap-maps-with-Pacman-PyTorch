@@ -89,7 +89,6 @@ class NeuralMapModel(object):
             td_map[train_model.nmap.memory] = memory
             td_map[train_model.nmap.old_c_t] = old_c_t
             td_map[train_model.nmap.ctx_state_input] = ctx_state
-            print('ran once')
             return sess.run(
                 [pg_loss, vf_loss, entropy, approxkl, clipfrac, _train],
                 td_map
