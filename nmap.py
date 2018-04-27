@@ -51,7 +51,7 @@ class NeuralMap(object):
         self.s_t, self.inputs = basenet(args, self.input_dims)
 
         # READ NETWORK
-        self.r_t, self.memory = read_network(args)
+        self.r_t, self.memory, self.before_flatten, self.after_flatten = read_network(args)
         self.max_maze_size = max(args['max_maze_size'])
         self.maze_size = max(args['maze_size'])
         self.map_scale = 2.0 if args['egocentric'] else 1.0
@@ -64,8 +64,6 @@ class NeuralMap(object):
             'maze_size': tf.constant(args['maze_size'], dtype=tf.float32, name='maze_size')
         }
 
-        self.m0 = tf.Variable(0.01 * np.random.randn(1,args['memory_channels'], 1, 1))
-
         self.old_c_t = tf.placeholder(tf.float32, shape=[None,1, args['memory_channels']], name='old_c_t')
 
         self.ctx_state_input = tf.placeholder(tf.float32, [2, None, args['memory_channels']], name='ctx_state_input')
@@ -76,7 +74,6 @@ class NeuralMap(object):
             self.memory,
             self.old_c_t,
             self.extras,
-            self.m0,
             self.ctx_state_tuple)
 
         self.w_t = write_network(
@@ -89,7 +86,7 @@ class NeuralMap(object):
         self.feats = fc(
             tf.concat([tf.squeeze(self.ctx_cx, 0), self.c_t, tf.squeeze(self.w_t, 0)], 1),
             args['memory_channels'],
-            activation_fn=tf.nn.elu) 
+            activation_fn=tf.nn.elu)
 
     def shift_memory(self, memory, pos, lpos):
         pos, lpos = np.array(pos), np.array(lpos)
@@ -113,19 +110,19 @@ class NeuralMap(object):
         shift_memory = 0.01 * np.random.randn(memory.shape[0], memory.shape[1], memory.shape[2], memory.shape[3])
         mem_sz = memory.shape[2]
         srcboundy = (
-                    np.maximum(velocity[:,0], 0.0).astype(np.int32), 
+                    np.maximum(velocity[:,0], 0.0).astype(np.int32),
                     np.minimum(mem_sz + velocity[:,0], mem_sz).astype(np.int32)
             )
         srcboundx = (
-                np.maximum(velocity[:,1], 0.0).astype(np.int32), 
+                np.maximum(velocity[:,1], 0.0).astype(np.int32),
                 np.minimum(mem_sz + velocity[:,1], mem_sz).astype(np.int32)
             )
         dstboundy = (
-                np.maximum(-velocity[:,0], 0.0).astype(np.int32), 
+                np.maximum(-velocity[:,0], 0.0).astype(np.int32),
                 np.minimum(mem_sz - velocity[:,0], mem_sz).astype(np.int32)
             )
         dstboundx = (
-                np.maximum(-velocity[:,1], 0.0).astype(np.int32), 
+                np.maximum(-velocity[:,1], 0.0).astype(np.int32),
                 np.minimum(mem_sz - velocity[:,1], mem_sz).astype(np.int32)
             )
         for ix in range(memory.shape[0]):
@@ -140,7 +137,7 @@ class NeuralMap(object):
         return new_memory
 
 class NeuralMapPolicy(object):
-    def __init__(self, sess, ob_space, ac_space, args, reuse=False): 
+    def __init__(self, sess, ob_space, ac_space, args, reuse=False):
         with tf.variable_scope('model', reuse=reuse):
             self.nmap = NeuralMap(args)
             self.pi = fc(

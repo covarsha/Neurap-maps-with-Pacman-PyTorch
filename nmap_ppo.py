@@ -18,7 +18,8 @@ class NeuralMapModel(object):
         # pass in architecture and also change NeuralMapPolicy to take these arguments
         act_model = NeuralMapPolicy(sess, ob_space, ac_space, nmap_args, False)
         train_model = NeuralMapPolicy(sess, ob_space, ac_space, nmap_args, True)
-
+        import pdb
+        pdb.set_trace()
         A = train_model.pdtype.sample_placeholder([None], name='A')
         ADV = tf.placeholder(tf.float32, [None], name='ADV')
         R = tf.placeholder(tf.float32, [None], name='R')
@@ -65,6 +66,7 @@ class NeuralMapModel(object):
             p_pos = [i['past_loc'] for i in info]
             step_counter = np.array([i['step_counter'] for i in info]).squeeze()
 
+            print(obs_img.shape)
 
             td_map = {
                 train_model.nmap.inputs: obs_img,
@@ -89,6 +91,13 @@ class NeuralMapModel(object):
             td_map[train_model.nmap.memory] = memory
             td_map[train_model.nmap.old_c_t] = old_c_t
             td_map[train_model.nmap.ctx_state_input] = ctx_state
+            a =  sess.run(
+                [train_model.nmap.before_flatten, train_model.nmap.after_flatten, train_model.nmap.s_t],
+                td_map
+            )
+            print(a[0].shape)
+            print(a[1].shape)
+            print('s_t', a[2].shape)
             return sess.run(
                 [pg_loss, vf_loss, entropy, approxkl, clipfrac, _train],
                 td_map
@@ -180,7 +189,7 @@ class Runner(object):
         #     mb_states, epinfos)
         return (mb_obs, mb_returns, mb_dones, mb_actions, mb_values, mb_neglogpacs,
             mb_states, epinfos)
-        # return 
+        # return
 
 
 def sf01(arr):
@@ -264,7 +273,7 @@ def learn(*, env, nsteps, total_timesteps, ent_coef, lr, nmap_args,
                     end = start + envsperbatch
                     mbenvinds = envinds[start:end]
                     mbflatinds = flatinds[mbenvinds].ravel()
-                    
+
                     slices = (arr[mbflatinds] for arr in (obs, returns, masks, actions, values, neglogpacs))
                     mbstates = (
                         np.array([states[ix][0] for ix in mbflatinds]),
@@ -273,7 +282,7 @@ def learn(*, env, nsteps, total_timesteps, ent_coef, lr, nmap_args,
                     )
 
                     mblossvals.append(model.train(lrnow, cliprangenow, *slices, mbstates))
-                    
+
 
 
         lossvals = np.mean(mblossvals, axis=0)

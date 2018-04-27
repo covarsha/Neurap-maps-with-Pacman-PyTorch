@@ -53,8 +53,8 @@ def basenet(args, input_dims):
             name='inputs')
         last_layer = inputs
         for l in range(len(args['n_units'])):
-            last_layer = conv2d(inputs=last_layer, 
-                num_outputs=args['n_units'][l], 
+            last_layer = conv2d(inputs=last_layer,
+                num_outputs=args['n_units'][l],
                 kernel_size=[args['filters'][l], args['filters'][l]], \
                 stride=[args['strides'][l], args['strides'][l]],
                 padding="same",
@@ -64,6 +64,7 @@ def basenet(args, input_dims):
 
         for l in range(len(args['n_hid'])):
             last_layer = fc(last_layer, args['n_hid'][l], activation_fn=string_to_nl(args['nl'][l]))
+        print(last_layer)
         return last_layer, inputs
 
 
@@ -76,23 +77,34 @@ def read_network(args):
             name='memory'
         )
         last_layer = memory
+
         for l in range(len(args['nmapr_n_units'])):
-            last_layer = conv2d(inputs=last_layer, 
-                num_outputs=args['nmapr_n_units'][l], 
+            last_layer = conv2d(inputs=last_layer,
+                num_outputs=args['nmapr_n_units'][l],
                 kernel_size=[args['nmapr_filters'][l], args['nmapr_filters'][l]], \
                 stride=[args['nmapr_strides'][l], args['nmapr_strides'][l]],
                 padding="same",
+                data_format="NCHW",
                 activation_fn=string_to_nl(args['nmapr_nl'][l]))
+            print(last_layer)
 
-        last_layer = flatten(last_layer)
-        # TODO: check sharing of activations thingie 
+        before_flatten = last_layer
+        # last_layer = flatten(last_layer)
+        after_flatten = flatten(last_layer)
+        shape = last_layer.get_shape().as_list()
+        dim = np.prod(shape[1:])
+        last_layer = tf.reshape(last_layer, [-1, dim])
+        print(last_layer)
+        # last_layer = after_flatten
+        # TODO: check sharing of activations thingie
         for l in range(len(args['nmapr_n_hid'])):
             last_layer = fc(last_layer, args['nmapr_n_hid'][l],
                 activation_fn=string_to_nl(args['nmapr_nl'][l]))
-    r_t = last_layer
-    return r_t, memory
 
-def context_network(args, s_t, r_t, memory, old_c_t, extras, m0, ctx_state_tuple,write_type='lstm'):
+    r_t = last_layer
+    return r_t, memory, before_flatten, after_flatten
+
+def context_network(args, s_t, r_t, memory, old_c_t, extras,ctx_state_tuple,write_type='lstm'):
 
     with tf.variable_scope('contextnet'):
 
@@ -114,7 +126,8 @@ def context_network(args, s_t, r_t, memory, old_c_t, extras, m0, ctx_state_tuple
 
         input_vec.append(r_t)
         input_vec = tf.expand_dims(tf.concat(input_vec, 1), 1)
-        
+
+        print(input_vec)
         # ctx_hx, ctx_cx = ctx_lstm(input_vec)
         # TODO: check if this is correct
         cont_hx, ctx_state_new_tuple = tf.nn.dynamic_rnn(ctx_lstm, input_vec,
@@ -127,16 +140,17 @@ def context_network(args, s_t, r_t, memory, old_c_t, extras, m0, ctx_state_tuple
         if args['egocentric']:
             map_scale *= 2.0
 
-        
+
         # TODO: is do = po - l_po being used anywhere? why not?
 
         query = fc(cont_hx, args['memory_channels'], activation_fn=None) # ?xC
         ctx_input = tf.concat([tf.squeeze(input_vec, 0), r_t, tf.squeeze(old_c_t, 0)], 1)
 
 
-        # Context Read from memory
-        memory_matrix = tf.reshape(memory, [-1, args['memory_size'] * args['memory_size']])
-        context_scores = tf.matmul(tf.squeeze(query, 0), memory_matrix) # (?xC) x (CxWH) --> ?xWH
+        # Context Read from memory (?,C,H,W) --> (?,C,WH)
+        memory_matrix = tf.reshape(memory, [-1, args['memory_channels'], args['memory_size'] * args['memory_size']])
+        context_scores = tf.matmul(query, memory_matrix) # (?xC) x (?xCxWH) --> ?xWH
+
         context_prob = tf.nn.softmax(context_scores)
         context_prob_map = tf.reshape(context_prob, (args['memory_size'], args['memory_size']))
 
@@ -159,7 +173,7 @@ def write_network(args, s_t, r_t, c_t, memory):
         old_write = memory[:,:,write_py,write_px]
         write_input = tf.expand_dims(tf.concat([s_t, r_t, c_t, old_write], axis=1), 0)
         write_update_gru = tf.contrib.rnn.GRUCell(write_output_size)
-        
+
         w_t, state = tf.nn.dynamic_rnn(write_update_gru,
             write_input,
             initial_state=old_write,
