@@ -10,6 +10,7 @@ from baselines.common import explained_variance
 from baselines.common.vec_env.dummy_vec_env import DummyVecEnv
 import pdb
 from nmap import NeuralMapPolicy
+from PIL import Image
 
 class NeuralMapModel(object):
     def __init__(self, *, ob_space, ac_space, nbatch_act, nbatch_train,
@@ -51,13 +52,10 @@ class NeuralMapModel(object):
         trainer = tf.train.AdamOptimizer(learning_rate=LR, epsilon=1e-5)
         _train = trainer.apply_gradients(grads)
 
-        # TODO: change for nmaps
-        # pass in parameter for info (dictionary)
         def train(lr, cliprange, obs, returns, masks, actions, values, neglogpacs, states=None):
             advs = np.array(returns) - np.array(values[0])
             advs = (advs - advs.mean())/(advs.std() + 1e-8)
             obs_img, info = obs[0], obs[1]
-            # print(obs_img.shape) # ntimesteps x 84 x 84 x 3
 
             obs_img = np.array(list(obs_img))
 
@@ -141,7 +139,6 @@ class Runner(object):
         mb_states = [self.states]
         epinfos = []
         for _ in range(self.nsteps):
-            # self.states will be a tuple of stuff from nmaps
             actions, values, mem, old_c_t, ctx_state, neglogpacs = self.model.step(self.obs, self.states, self.dones)
             self.states = (mem, np.expand_dims(old_c_t, 1), ctx_state)
 
@@ -152,19 +149,22 @@ class Runner(object):
             mb_dones.append(self.dones)
             mb_states.append(self.states)
 
-            # TODO: when VecFrameStack, actions need to be array for each env
             self.obs, rewards, self.dones, infos = self.env.step(actions)
+            if infos.get('episode'):
+                epinfos.extend(infos['episode'])
+            self.states = self.model.act_model.get_initial_state(self.nenv,self.states,self.dones)
             self.obs = [self.obs, infos]
+
             mb_rewards.append(rewards)
-        #batch of steps to batch of rollouts
+
         mb_obs = (np.asarray([m[0] for m in mb_obs]), [m[1] for m in mb_obs])
         mb_rewards = np.asarray(mb_rewards, dtype=np.float32)
         mb_actions = np.asarray(mb_actions)
         mb_values = np.asarray(mb_values, dtype=np.float32).squeeze()
         mb_neglogpacs = np.asarray(mb_neglogpacs, dtype=np.float32)
         mb_dones = np.asarray(mb_dones, dtype=np.bool)
-        last_values = np.asarray(self.model.value(self.obs, self.states, self.dones)).squeeze()
-        #discount/bootstrap off value fn
+        last_values = np.asarray(self.model.act_model.value(self.obs, self.states, self.dones)).squeeze()
+
         mb_returns = np.zeros_like(mb_rewards)
         mb_advs = np.zeros_like(mb_rewards)
         lastgaelam = 0
@@ -179,12 +179,9 @@ class Runner(object):
             mb_advs[t] = lastgaelam = delta + self.gamma * self.lam * nextnonterminal * lastgaelam
         mb_returns = mb_advs + mb_values
 
-        # TODO: this needs to probably change when we do multi-environments
-        # return (*map(sf01, (mb_obs, mb_returns, mb_dones, mb_actions, mb_values, mb_neglogpacs)),
-        #     mb_states, epinfos)
         return ((sf01(mb_obs[0]), sf01dict(mb_obs[1], self.nenv)), sf01(mb_returns), sf01(mb_dones), sf01(mb_actions), sf01(mb_values), sf01(mb_neglogpacs),
             mb_states, epinfos)
-        # return
+
 
 def sf01dict(arr, nenvs):
     flattened_list_dicts = []
@@ -217,7 +214,7 @@ def constfn(val):
 def learn(*, env, nsteps, total_timesteps, ent_coef, lr, nmap_args,
             vf_coef=0.5,  max_grad_norm=0.5, gamma=0.99, lam=0.95,
             log_interval=10, nminibatches=4, noptepochs=1, cliprange=0.2,
-            save_interval=0):
+            save_interval=10):
 
     if isinstance(lr, float): lr = constfn(lr)
     else: assert callable(lr)
@@ -230,12 +227,11 @@ def learn(*, env, nsteps, total_timesteps, ent_coef, lr, nmap_args,
     ac_space = env.action_space
     nbatch = nenvs * nsteps
     nbatch_train = nbatch // nminibatches
-    #nbatch_train = 1
-    # TODO: change for nmap (1)
     make_model = lambda : NeuralMapModel(ob_space=ob_space, ac_space=ac_space, nbatch_act=nenvs, nbatch_train=nbatch_train,
                     nsteps=nsteps, ent_coef=ent_coef, vf_coef=vf_coef,
                     nmap_args=nmap_args,
                     max_grad_norm=max_grad_norm)
+    print("""Will save in %s""" % logger.get_dir())
     if save_interval and logger.get_dir():
         import cloudpickle
         with open(osp.join(logger.get_dir(), 'make_model.pkl'), 'wb') as fh:
@@ -248,6 +244,7 @@ def learn(*, env, nsteps, total_timesteps, ent_coef, lr, nmap_args,
 
     nupdates = total_timesteps//nbatch
     for update in range(1, nupdates+1):
+        print ('UPDATE NUMBER = ',update)
         assert nbatch % nminibatches == 0
         nbatch_train = nbatch // nminibatches
         tstart = time.time()
@@ -255,6 +252,8 @@ def learn(*, env, nsteps, total_timesteps, ent_coef, lr, nmap_args,
         lrnow = lr(frac)
         cliprangenow = cliprange(frac)
         obs, returns, masks, actions, values, neglogpacs, states, epinfos = runner.run() #pylint: disable=E0632
+        #Image.fromarray(obs[0][0]).save("hi_%d.png" % 0)
+        #assert False
         #print ('Start states',states[0])
         epinfobuf.extend(epinfos)
         mblossvals = []
@@ -340,6 +339,7 @@ class PacmanDummyVecEnv(DummyVecEnv):
             obs_tuple, self.buf_rews[i], self.buf_dones[i], self.buf_infos[i] = self.envs[i].step(self.actions[i])
             if self.buf_dones[i]:
                 obs_tuple = self.envs[i].reset()
+                self.buf_infos[i] = self.envs[i].env.initial_info
             if isinstance(obs_tuple, (tuple, list)):
                 for t,x in enumerate(obs_tuple):
                     self.buf_obs[t][i] = x
@@ -349,7 +349,7 @@ class PacmanDummyVecEnv(DummyVecEnv):
         self.info = self.buf_infos[0]
         for i in range(1, self.num_envs):
             for k in self.buf_infos[i]:
-                if k in self.buf_infos[i]:
+                if k in self.buf_infos[i] and k in self.info:
                     self.info[k].extend(self.buf_infos[i][k])
 
         return (self._obs_from_buf(), np.copy(self.buf_rews), np.copy(self.buf_dones),

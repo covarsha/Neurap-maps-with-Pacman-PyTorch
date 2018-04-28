@@ -29,7 +29,6 @@ def train(args, num_timesteps):
     tf.Session(config=config).__enter__()
     num_sub_in_grp = 4
     args['task']='BerkeleyPacmanPO-v0'
-    # TODO: make it possible for multiple environments
     seed=0
     def make_env_vec(seed):
         def make_env():
@@ -51,7 +50,6 @@ def train(args, num_timesteps):
     #env = gym.make('BerkeleyPacmanPO-v0')
     args['max_maze_size'] = envobj.envs[0].env.MAX_MAZE_SIZE
     args['maze_size'] = envobj.envs[0].env.maze_size
-    # policy = NeuralMapPolicy(args, env, input_dims)
     print ('Reached')
     ppo.learn(env=envobj, nsteps=12, nminibatches=1,
         lam=0.95, gamma=0.99, noptepochs=4, log_interval=1,
