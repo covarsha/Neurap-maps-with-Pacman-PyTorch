@@ -151,15 +151,20 @@ def context_network(args, s_t, r_t, memory, old_c_t, extras,ctx_state_tuple,writ
         memory_matrix = tf.reshape(memory, [-1, args['memory_channels'], args['memory_size'] * args['memory_size']])
         context_scores = tf.matmul(query, memory_matrix) # (?xC) x (?xCxWH) --> ?xWH
 
+        print(context_scores)
         context_prob = tf.nn.softmax(context_scores)
-        context_prob_map = tf.reshape(context_prob, (args['memory_size'], args['memory_size']))
+        print(context_prob)
+        context_prob_map = tf.reshape(context_prob, (-1, 1, args['memory_size'], args['memory_size']))
 
-        context_prob_map_expand = tf.expand_dims(
-            tf.tile(tf.expand_dims(context_prob_map, 0),
-            [args['memory_channels'],1,1]), 0)
+        print(context_prob_map)
+        context_prob_map_expand = tf.tile(context_prob_map,
+            [1,args['memory_channels'],1,1])
 
+        print(context_prob_map_expand)
+        print(memory * context_prob_map_expand)
+        print('--------------')
         c_t = tf.reduce_sum(
-            tf.reshape(memory * context_prob_map_expand, (1,args['memory_channels'], -1)),
+            tf.reshape(memory * context_prob_map_expand, (-1,args['memory_channels'], args['memory_size'] * args['memory_size'])),
             axis=2
         )
 
@@ -171,14 +176,19 @@ def write_network(args, s_t, r_t, c_t, memory):
         write_py, write_px = args['memory_size'] // 2, args['memory_size'] // 2
         write_output_size = args['memory_channels']
         old_write = memory[:,:,write_py,write_px]
-        write_input = tf.expand_dims(tf.concat([s_t, r_t, c_t, old_write], axis=1), 0)
+        print([s_t, r_t, c_t, old_write])
+        write_input = tf.expand_dims(tf.concat([s_t, r_t, c_t, old_write], axis=1), 1)
+        print(write_input)
         write_update_gru = tf.contrib.rnn.GRUCell(write_output_size)
 
+        print('write_input', write_input)
+        print('initial_state',old_write)
         w_t, state = tf.nn.dynamic_rnn(write_update_gru,
             write_input,
             initial_state=old_write,
             dtype=tf.float32,
         )
+        print('w_t', w_t)
 
 
     return w_t

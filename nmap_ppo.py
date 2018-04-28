@@ -66,8 +66,6 @@ class NeuralMapModel(object):
             p_pos = [i['past_loc'] for i in info]
             step_counter = np.array([i['step_counter'] for i in info]).squeeze()
 
-            print(obs_img.shape)
-
             td_map = {
                 train_model.nmap.inputs: obs_img,
                 train_model.nmap.extras['pos']: np.squeeze(pos, 1),

@@ -84,7 +84,7 @@ class NeuralMap(object):
             self.memory)
 
         self.feats = fc(
-            tf.concat([tf.squeeze(self.ctx_cx, 0), self.c_t, tf.squeeze(self.w_t, 0)], 1),
+            tf.concat([tf.squeeze(self.ctx_cx,1), self.c_t, tf.squeeze(self.w_t, 1)], 1),
             args['memory_channels'],
             activation_fn=tf.nn.elu)
 
