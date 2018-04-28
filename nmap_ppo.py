@@ -7,7 +7,7 @@ import tensorflow as tf
 from baselines import logger
 from collections import deque
 from baselines.common import explained_variance
-
+import pdb
 from nmap import NeuralMapPolicy
 
 class NeuralMapModel(object):
@@ -18,9 +18,6 @@ class NeuralMapModel(object):
         # pass in architecture and also change NeuralMapPolicy to take these arguments
         act_model = NeuralMapPolicy(sess, ob_space, ac_space, nmap_args, False)
         train_model = NeuralMapPolicy(sess, ob_space, ac_space, nmap_args, True)
-        print(dir(act_model))
-        import pdb
-        #pdb.set_trace()
         A = train_model.pdtype.sample_placeholder([None], name='A')
         ADV = tf.placeholder(tf.float32, [None], name='ADV')
         R = tf.placeholder(tf.float32, [None], name='R')
@@ -58,7 +55,7 @@ class NeuralMapModel(object):
         def train(lr, cliprange, obs, returns, masks, actions, values, neglogpacs, states=None):
             advs = np.array(returns) - np.array(values[0])
             advs = (advs - advs.mean())/(advs.std() + 1e-8)
-            obs_img, info = obs[:,0], obs[:,1]
+            obs_img, info = obs[0], obs[1]
             # print(obs_img.shape) # ntimesteps x 84 x 84 x 3
 
             obs_img = np.array(list(obs_img))
@@ -94,9 +91,6 @@ class NeuralMapModel(object):
                 [train_model.nmap.before_flatten, train_model.nmap.after_flatten, train_model.nmap.s_t],
                 td_map
             )
-            print(a[0].shape)
-            print(a[1].shape)
-            print('s_t', a[2].shape)
             return sess.run(
                 [pg_loss, vf_loss, entropy, approxkl, clipfrac, _train],
                 td_map
@@ -132,6 +126,7 @@ class Runner(object):
         self.env = env
         self.model = model
         nenv = env.num_envs
+        self.nenv = nenv
         obs_img = env.reset()
         self.obs = [obs_img, env.initial_info() ]
         self.gamma = gamma
@@ -147,7 +142,7 @@ class Runner(object):
         for _ in range(self.nsteps):
             # self.states will be a tuple of stuff from nmaps
             actions, values, mem, old_c_t, ctx_state, neglogpacs = self.model.step(self.obs, self.states, self.dones)
-            self.states = (mem, np.expand_dims(old_c_t, 0), ctx_state)
+            self.states = (mem, np.expand_dims(old_c_t, 1), ctx_state)
 
             mb_obs.append(self.obs.copy())
             mb_actions.append(actions)
@@ -161,7 +156,7 @@ class Runner(object):
             self.obs = [self.obs, infos]
             mb_rewards.append(rewards)
         #batch of steps to batch of rollouts
-        mb_obs = np.asarray(mb_obs)
+        mb_obs = (np.asarray([m[0] for m in mb_obs]), [m[1] for m in mb_obs])
         mb_rewards = np.asarray(mb_rewards, dtype=np.float32)
         mb_actions = np.asarray(mb_actions)
         mb_values = np.asarray(mb_values, dtype=np.float32).squeeze()
@@ -186,9 +181,20 @@ class Runner(object):
         # TODO: this needs to probably change when we do multi-environments
         # return (*map(sf01, (mb_obs, mb_returns, mb_dones, mb_actions, mb_values, mb_neglogpacs)),
         #     mb_states, epinfos)
-        return (mb_obs, mb_returns, mb_dones, mb_actions, mb_values, mb_neglogpacs,
+        return ((sf01(mb_obs[0]), sf01dict(mb_obs[1], self.nenv)), sf01(mb_returns), sf01(mb_dones), sf01(mb_actions), sf01(mb_values), sf01(mb_neglogpacs),
             mb_states, epinfos)
         # return
+
+def sf01dict(arr, nenvs):
+    flattened_list_dicts = []
+    for env_ix in range(nenvs):
+        for arr_item in arr:
+            new_dict = {}
+            for k in arr_item:
+                new_dict[k] = [arr_item[k][env_ix]]
+            flattened_list_dicts.append(new_dict)
+    return flattened_list_dicts
+
 
 
 def sf01(arr):
@@ -237,7 +243,6 @@ def learn(*, env, nsteps, total_timesteps, ent_coef, lr, nmap_args,
 
     nupdates = total_timesteps//nbatch
     for update in range(1, nupdates+1):
-        print ('update=',update)
         assert nbatch % nminibatches == 0
         nbatch_train = nbatch // nminibatches
         tstart = time.time()
@@ -245,6 +250,7 @@ def learn(*, env, nsteps, total_timesteps, ent_coef, lr, nmap_args,
         lrnow = lr(frac)
         cliprangenow = cliprange(frac)
         obs, returns, masks, actions, values, neglogpacs, states, epinfos = runner.run() #pylint: disable=E0632
+        #print ('Start states',states[0])
         epinfobuf.extend(epinfos)
         mblossvals = []
         if states is None: # nonrecurrent version
@@ -264,6 +270,8 @@ def learn(*, env, nsteps, total_timesteps, ent_coef, lr, nmap_args,
             envinds = np.arange(nenvs)
             flatinds = np.arange(nenvs*nsteps).reshape(nenvs,nsteps)
             envsperbatch = nbatch_train // nsteps
+            
+            states = states[:-1]
             for _ in range(noptepochs):
                 np.random.shuffle(envinds)
                 # TODO: this needs to be uncommented (and made to work for multi-env)
@@ -271,16 +279,22 @@ def learn(*, env, nsteps, total_timesteps, ent_coef, lr, nmap_args,
                 for start in range(0, nenvs, envsperbatch):
                     end = start + envsperbatch
                     mbenvinds = envinds[start:end]
+
                     mbflatinds = flatinds[mbenvinds].ravel()
 
-                    slices = (arr[mbflatinds] for arr in (obs, returns, masks, actions, values, neglogpacs))
+                    slices = list(arr[mbflatinds] for arr in (returns, masks, actions, values, neglogpacs))
+                    
+                    slices.insert(0, (obs[0][mbflatinds], [obs[1][ix] for ix in mbflatinds]))
+
+                    
                     mbstates = (
-                        np.array([states[ix][0] for ix in mbflatinds]),
-                        np.array([states[ix][1] for ix in mbflatinds]),
-                        np.array([states[ix][2] for ix in mbflatinds])
+                        np.array([states[ix % nsteps][0][ix // nsteps, ...] for ix in mbflatinds]),
+                        np.array([states[ix % nsteps][1][ix // nsteps, ...] for ix in mbflatinds]),
+                        np.array([(states[ix % nsteps][2][0][ix // nsteps, ...], states[ix % nsteps][2][1][ix // nsteps, ...]) for ix in mbflatinds])
                     )
 
                     mblossvals.append(model.train(lrnow, cliprangenow, *slices, mbstates))
+
 
 
 

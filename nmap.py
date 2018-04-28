@@ -133,7 +133,6 @@ class NeuralMap(object):
     def write_to_memory(self, memory, w_t):
         new_memory = np.copy(memory)
         write_py, write_px = memory.shape[2] // 2, memory.shape[3] // 2
-        print('w_t', w_t.shape)
         new_memory[:,:,write_py,write_px] = w_t
         return new_memory
 
@@ -167,15 +166,7 @@ class NeuralMapPolicy(object):
             memory, old_c_t, ctx_state = state
 
             # shift memory first
-            print ('info=',info)
             shift_memory = self.nmap.shift_memory(memory, info['curr_loc'], info['past_loc'])
-            print ('obs',obs_img.shape)
-            print ('memory',shift_memory.shape)
-            print ('old_c_t',old_c_t.shape)
-            print ('ctx_state',ctx_state[0].shape, ctx_state[1].shape)
-            print(np.array(info['curr_loc']))
-            print(np.array(info['past_loc']))
-            print(np.array([[t[0] % self.max_timestep] for t in info['step_counter']]))
             a, v0, w_t, c_t, c_new, neglogp = sess.run([
                         self.A,
                         self.v0,
