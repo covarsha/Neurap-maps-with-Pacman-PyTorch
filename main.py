@@ -4,7 +4,7 @@ import gym_pacman
 import argparse
 import sys
 from baselines import logger,bench
-from baselines.common.vec_env.dummy_vec_env import DummyVecEnv
+
 import nmap_ppo as ppo
 import multiprocessing
 import tensorflow as tf
@@ -14,6 +14,8 @@ import os.path as osp
 import pdb
 
 from nmap import NeuralMapPolicy
+
+
 
 
 def train(args, num_timesteps):
@@ -43,7 +45,7 @@ def train(args, num_timesteps):
             if 'Atari' in str(env.__dict__['env']):
                 env = wrap_deepmind(env, frame_stack=True)
             return env
-        return DummyVecEnv([make_env for _ in range(num_sub_in_grp)])
+        return ppo.PacmanDummyVecEnv([make_env for _ in range(num_sub_in_grp)])
 
     envobj = make_env_vec(np.random.randint(0, 2**31-1))
     #env = gym.make('BerkeleyPacmanPO-v0')

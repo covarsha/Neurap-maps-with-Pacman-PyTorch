@@ -7,6 +7,7 @@ import tensorflow as tf
 from baselines import logger
 from collections import deque
 from baselines.common import explained_variance
+from baselines.common.vec_env.dummy_vec_env import DummyVecEnv
 import pdb
 from nmap import NeuralMapPolicy
 
@@ -191,7 +192,11 @@ def sf01dict(arr, nenvs):
         for arr_item in arr:
             new_dict = {}
             for k in arr_item:
-                new_dict[k] = [arr_item[k][env_ix]]
+                try:
+                    new_dict[k] = [arr_item[k][env_ix]]
+                except:
+                    import pdb
+                    pdb.set_trace()
             flattened_list_dicts.append(new_dict)
     return flattened_list_dicts
 
@@ -270,7 +275,7 @@ def learn(*, env, nsteps, total_timesteps, ent_coef, lr, nmap_args,
             envinds = np.arange(nenvs)
             flatinds = np.arange(nenvs*nsteps).reshape(nenvs,nsteps)
             envsperbatch = nbatch_train // nsteps
-            
+
             states = states[:-1]
             for _ in range(noptepochs):
                 np.random.shuffle(envinds)
@@ -324,3 +329,37 @@ def learn(*, env, nsteps, total_timesteps, ent_coef, lr, nmap_args,
 
 def safemean(xs):
     return np.nan if len(xs) == 0 else np.mean(xs)
+
+
+
+class PacmanDummyVecEnv(DummyVecEnv):
+
+    def step_wait(self):
+        
+        for i in range(self.num_envs):
+            obs_tuple, self.buf_rews[i], self.buf_dones[i], self.buf_infos[i] = self.envs[i].step(self.actions[i])
+            if self.buf_dones[i]:
+                obs_tuple = self.envs[i].reset()
+            if isinstance(obs_tuple, (tuple, list)):
+                for t,x in enumerate(obs_tuple):
+                    self.buf_obs[t][i] = x
+            else:
+                self.buf_obs[0][i] = obs_tuple
+
+        self.info = self.buf_infos[0]
+        for i in range(1, self.num_envs):
+            for k in self.buf_infos[i]:
+                if k in self.buf_infos[i]:
+                    self.info[k].extend(self.buf_infos[i][k])
+
+        return (self._obs_from_buf(), np.copy(self.buf_rews), np.copy(self.buf_dones),
+                self.info.copy())
+
+    def initial_info(self):
+        initial_info_ = self.envs[0].env.initial_info
+        for i in range(1, self.num_envs):
+            for k in self.envs[i].env.initial_info:
+                initial_info_[k].extend(self.envs[i].env.initial_info[k])
+        return initial_info_
+
+

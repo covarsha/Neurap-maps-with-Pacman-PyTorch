@@ -122,6 +122,7 @@ def context_network(args, s_t, r_t, memory, old_c_t, extras,ctx_state_tuple,writ
         input_vec.append(timestep)
 
         input_vec.append(r_t)
+        input_vec.append(tf.squeeze(old_c_t,1))
         input_vec = tf.expand_dims(tf.concat(input_vec, 1), 1)
         # ctx_hx, ctx_cx = ctx_lstm(input_vec)
         # TODO: check if this is correct
