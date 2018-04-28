@@ -78,6 +78,7 @@ def read_network(args):
         last_layer = memory
         for l in range(len(args['nmapr_n_units'])):
             last_layer = conv2d(inputs=last_layer, 
+                data_format='NCHW',
                 num_outputs=args['nmapr_n_units'][l], 
                 kernel_size=[args['nmapr_filters'][l], args['nmapr_filters'][l]], \
                 stride=[args['nmapr_strides'][l], args['nmapr_strides'][l]],
@@ -113,7 +114,7 @@ def context_network(args, s_t, r_t, memory, old_c_t, extras, m0, ctx_state_tuple
         input_vec.append(timestep)
 
         input_vec.append(r_t)
-        input_vec = tf.expand_dims(tf.concat(input_vec, 1), 1)
+        input_vec = tf.concat(input_vec, 1)
         
         # ctx_hx, ctx_cx = ctx_lstm(input_vec)
         # TODO: check if this is correct
