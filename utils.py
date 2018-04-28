@@ -84,7 +84,7 @@ def read_network(args):
                 kernel_size=[args['nmapr_filters'][l], args['nmapr_filters'][l]], \
                 stride=[args['nmapr_strides'][l], args['nmapr_strides'][l]],
                 padding="same",
-                data_format="NCHW",
+                data_format="NHWC",#NCHW
                 activation_fn=string_to_nl(args['nmapr_nl'][l]))
             print(last_layer)
 
@@ -126,7 +126,7 @@ def context_network(args, s_t, r_t, memory, old_c_t, extras,ctx_state_tuple,writ
 
         input_vec.append(r_t)
         input_vec = tf.expand_dims(tf.concat(input_vec, 1), 1)
-
+        ####Add old context####### 
         print(input_vec)
         # ctx_hx, ctx_cx = ctx_lstm(input_vec)
         # TODO: check if this is correct
@@ -144,7 +144,7 @@ def context_network(args, s_t, r_t, memory, old_c_t, extras,ctx_state_tuple,writ
         # TODO: is do = po - l_po being used anywhere? why not?
 
         query = fc(cont_hx, args['memory_channels'], activation_fn=None) # ?xC
-        ctx_input = tf.concat([tf.squeeze(input_vec, 0), r_t, tf.squeeze(old_c_t, 0)], 1)
+        #ctx_input = tf.concat([tf.squeeze(input_vec, 0), r_t, tf.squeeze(old_c_t, 0)], 1)
 
 
         # Context Read from memory (?,C,H,W) --> (?,C,WH)

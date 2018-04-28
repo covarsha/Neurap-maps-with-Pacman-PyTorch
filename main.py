@@ -3,11 +3,15 @@ import gym
 import gym_pacman
 import argparse
 import sys
-from baselines import logger
-# from baselines.common.vec_env.vec_frame_stack import VecFrameStack
+from baselines import logger,bench
+from baselines.common.vec_env.dummy_vec_env import DummyVecEnv
 import nmap_ppo as ppo
 import multiprocessing
 import tensorflow as tf
+import numpy as np
+import os
+import os.path as osp
+import pdb
 
 from nmap import NeuralMapPolicy
 
@@ -21,17 +25,33 @@ def train(args, num_timesteps):
                             inter_op_parallelism_threads=ncpu)
     config.gpu_options.allow_growth = True #pylint: disable=E1101
     tf.Session(config=config).__enter__()
-
+    num_sub_in_grp = 4
+    args['task']='BerkeleyPacmanPO-v0'
     # TODO: make it possible for multiple environments
-    # env = VecFrameStack(make_atari_env(env_id, 8, seed), 4)
-    env = gym.make('BerkeleyPacmanPO-v0')
+    seed=0
+    def make_env_vec(seed):
+        def make_env():
+            env = gym.make('BerkeleyPacmanPO-v0')
+            #env.seed(seed)
+            MONITORDIR = osp.join('savedir', 'monitor')
+            if not osp.exists(MONITORDIR):
+                os.makedirs(MONITORDIR)
+            monitor_path = osp.join(MONITORDIR, '%s-%d'%(args['task'], seed))
+            env = bench.Monitor(env, monitor_path, allow_early_resets=True)
+            #env = gym.wrappers.Monitor(env, MONITORDIR, force=True, 
+            #        video_callable=lambda episode_id: True)
+            if 'Atari' in str(env.__dict__['env']):
+                env = wrap_deepmind(env, frame_stack=True)
+            return env
+        return DummyVecEnv([make_env for _ in range(num_sub_in_grp)])
 
-    args['max_maze_size'] = env.MAX_MAZE_SIZE
-    args['maze_size'] = env.maze_size
-
+    envobj = make_env_vec(np.random.randint(0, 2**31-1))
+    #env = gym.make('BerkeleyPacmanPO-v0')
+    args['max_maze_size'] = envobj.envs[0].env.MAX_MAZE_SIZE
+    args['maze_size'] = envobj.envs[0].env.maze_size
     # policy = NeuralMapPolicy(args, env, input_dims)
-
-    ppo.learn(env=env, nsteps=12, nminibatches=1,
+    print ('Reached')
+    ppo.learn(env=envobj, nsteps=12, nminibatches=1,
         lam=0.95, gamma=0.99, noptepochs=4, log_interval=1,
         ent_coef=.01,
         lr=lambda f : f * 2.5e-4,

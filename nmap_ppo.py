@@ -18,8 +18,9 @@ class NeuralMapModel(object):
         # pass in architecture and also change NeuralMapPolicy to take these arguments
         act_model = NeuralMapPolicy(sess, ob_space, ac_space, nmap_args, False)
         train_model = NeuralMapPolicy(sess, ob_space, ac_space, nmap_args, True)
+        print(dir(act_model))
         import pdb
-        pdb.set_trace()
+        #pdb.set_trace()
         A = train_model.pdtype.sample_placeholder([None], name='A')
         ADV = tf.placeholder(tf.float32, [None], name='ADV')
         R = tf.placeholder(tf.float32, [None], name='R')
@@ -120,7 +121,7 @@ class NeuralMapModel(object):
         self.act_model = act_model
         self.step = act_model.step
         self.value = act_model.value
-        self.initial_state = act_model.initial_state
+        self.initial_state = act_model.get_initial_state(nbatch_act)
         self.save = save
         self.load = load
         tf.global_variables_initializer().run(session=sess) #pylint: disable=E1101
@@ -132,7 +133,7 @@ class Runner(object):
         self.model = model
         nenv = env.num_envs
         obs_img = env.reset()
-        self.obs = [obs_img, env.initial_info]
+        self.obs = [obs_img, env.initial_info() ]
         self.gamma = gamma
         self.lam = lam
         self.nsteps = nsteps
@@ -156,7 +157,7 @@ class Runner(object):
             mb_states.append(self.states)
 
             # TODO: when VecFrameStack, actions need to be array for each env
-            self.obs, rewards, self.dones, infos = self.env.step(actions[0])
+            self.obs, rewards, self.dones, infos = self.env.step(actions)
             self.obs = [self.obs, infos]
             mb_rewards.append(rewards)
         #batch of steps to batch of rollouts
@@ -219,7 +220,6 @@ def learn(*, env, nsteps, total_timesteps, ent_coef, lr, nmap_args,
     nbatch = nenvs * nsteps
     nbatch_train = nbatch // nminibatches
     #nbatch_train = 1
-
     # TODO: change for nmap (1)
     make_model = lambda : NeuralMapModel(ob_space=ob_space, ac_space=ac_space, nbatch_act=nenvs, nbatch_train=nbatch_train,
                     nsteps=nsteps, ent_coef=ent_coef, vf_coef=vf_coef,
@@ -237,6 +237,7 @@ def learn(*, env, nsteps, total_timesteps, ent_coef, lr, nmap_args,
 
     nupdates = total_timesteps//nbatch
     for update in range(1, nupdates+1):
+        print ('update=',update)
         assert nbatch % nminibatches == 0
         nbatch_train = nbatch // nminibatches
         tstart = time.time()

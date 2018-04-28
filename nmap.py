@@ -133,6 +133,7 @@ class NeuralMap(object):
     def write_to_memory(self, memory, w_t):
         new_memory = np.copy(memory)
         write_py, write_px = memory.shape[2] // 2, memory.shape[3] // 2
+        print('w_t', w_t.shape)
         new_memory[:,:,write_py,write_px] = w_t
         return new_memory
 
@@ -154,11 +155,11 @@ class NeuralMapPolicy(object):
             self.A = self.pd.sample()
             self.neglogp = self.pd.neglogp(self.A)
         self.max_timestep = args['max_timestep']
-
-        initial_memory = 0.01 * np.random.randn(1,256, args['memory_size'], args['memory_size'])
-        initial_old_c_t = np.zeros((1, 1, args['memory_channels']))
-        initial_ctx_cx = (np.zeros((1, args['memory_channels'])), np.zeros((1, args['memory_channels'])))
-        self.initial_state = (initial_memory, initial_old_c_t, initial_ctx_cx)
+        self.args=args
+        # initial_memory = 0.01 * np.random.randn(1,256, args['memory_size'], args['memory_size'])
+        # initial_old_c_t = np.zeros((1, 1, args['memory_channels']))
+        # initial_ctx_cx = (np.zeros((1, args['memory_channels'])), np.zeros((1, args['memory_channels'])))
+        # self.initial_state = (initial_memory, initial_old_c_t, initial_ctx_cx)
 
 
         def step(obs, state, done):
@@ -166,8 +167,15 @@ class NeuralMapPolicy(object):
             memory, old_c_t, ctx_state = state
 
             # shift memory first
+            print ('info=',info)
             shift_memory = self.nmap.shift_memory(memory, info['curr_loc'], info['past_loc'])
-
+            print ('obs',obs_img.shape)
+            print ('memory',shift_memory.shape)
+            print ('old_c_t',old_c_t.shape)
+            print ('ctx_state',ctx_state[0].shape, ctx_state[1].shape)
+            print(np.array(info['curr_loc']))
+            print(np.array(info['past_loc']))
+            print(np.array([[t[0] % self.max_timestep] for t in info['step_counter']]))
             a, v0, w_t, c_t, c_new, neglogp = sess.run([
                         self.A,
                         self.v0,
@@ -176,7 +184,7 @@ class NeuralMapPolicy(object):
                         self.nmap.ctx_state_new,
                         self.neglogp,
                     ], feed_dict={
-                self.nmap.inputs: np.expand_dims(obs_img,0),
+                self.nmap.inputs: obs_img,
                 self.nmap.memory: shift_memory,
                 self.nmap.extras['pos']: info['curr_loc'],
                 self.nmap.extras['p_pos']: info['past_loc'],
@@ -185,6 +193,7 @@ class NeuralMapPolicy(object):
                 self.nmap.ctx_state_input: ctx_state
             })
 
+            w_t = np.squeeze(w_t, 1)
             # write to memory here
             new_memory = self.nmap.write_to_memory(shift_memory, w_t)
             return a, v0, new_memory, c_t, c_new, neglogp
@@ -195,7 +204,7 @@ class NeuralMapPolicy(object):
             return sess.run([
                         self.v0,
                     ], feed_dict= {
-                self.nmap.inputs: np.expand_dims(obs_img,0),
+                self.nmap.inputs: obs_img,
                 self.nmap.memory: memory,
                 self.nmap.extras['pos']: info['curr_loc'],
                 self.nmap.extras['p_pos']: info['past_loc'],
@@ -207,3 +216,9 @@ class NeuralMapPolicy(object):
         self.step = step
         self.value = value
 
+    def get_initial_state(self,nenv):
+        initial_memory = 0.01 * np.random.randn(nenv,256, self.args['memory_size'], self.args['memory_size'])
+        initial_old_c_t = np.zeros((nenv, 1, self.args['memory_channels']))
+        initial_ctx_cx = (np.zeros((nenv, self.args['memory_channels'])), np.zeros((nenv, self.args['memory_channels'])))
+        initial_state = (initial_memory, initial_old_c_t, initial_ctx_cx)
+        return initial_state
