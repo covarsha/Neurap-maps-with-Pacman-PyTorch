@@ -28,7 +28,7 @@ def train(args, num_timesteps):
 
     args['max_maze_size'] = env.MAX_MAZE_SIZE
     args['maze_size'] = env.maze_size
-    
+
     # policy = NeuralMapPolicy(args, env, input_dims)
 
     ppo.learn(env=env, nsteps=12, nminibatches=1,
@@ -54,7 +54,7 @@ def parse_arguments():
     parser.add_argument('--use_orient',dest='use_orient',type=bool, default=False)
     parser.add_argument('--use_velocity',dest='use_velocity',type=bool, default=True)
     parser.add_argument('--use_timestep',dest='use_timestep',type=bool, default=True)
-    parser.add_argument('--max_timestep',dest='max_timestep',type=int, default=5) #Use 500 for testing 
+    parser.add_argument('--max_timestep',dest='max_timestep',type=int, default=5) #Use 500 for testing
     #parser.add_argument('--nmapr_n_units',dest='nmapr_n_units',type=, default=)
     #parser.add_argument('--nmapr_filters',dest='nmapr_filters',type=, default=)
     #parser.add_argument('--nmapr_strides',dest='nmapr_strides',type=, default=)
@@ -104,8 +104,8 @@ def main(args):
     args['filters'] = []
     args['strides'] = []
     args['padding'] = []
-    args['nl'] = []
-    args['n_hid'] = []
+    args['nl'] = ['relu']
+    args['n_hid'] = [128]
     args['seed'] = seed
     args['input_dims'] = [84,84,3]
     args['lr'] = 0.0001
@@ -124,4 +124,4 @@ def main(args):
 
 if __name__ == '__main__':
     main(sys.argv)
-    
+
