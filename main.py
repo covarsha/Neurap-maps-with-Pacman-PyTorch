@@ -29,6 +29,7 @@ def train(args, num_timesteps):
     tf.Session(config=config).__enter__()
     num_sub_in_grp = 4
     args['task']='BerkeleyPacmanPO-v0'
+    args['savepath']='/checkpoints/'
     seed=0
     def make_env_vec(seed):
         def make_env():
@@ -50,7 +51,6 @@ def train(args, num_timesteps):
     #env = gym.make('BerkeleyPacmanPO-v0')
     args['max_maze_size'] = envobj.envs[0].env.MAX_MAZE_SIZE
     args['maze_size'] = envobj.envs[0].env.maze_size
-    print ('Reached')
     ppo.learn(env=envobj, nsteps=12, nminibatches=1,
         lam=0.95, gamma=0.99, noptepochs=4, log_interval=1,
         ent_coef=.01,
@@ -58,6 +58,44 @@ def train(args, num_timesteps):
         cliprange=lambda f : f * 0.1,
         total_timesteps=int(num_timesteps * 1.1),
         nmap_args=args)
+def test(args, num_timesteps):
+    ncpu = multiprocessing.cpu_count()
+    if sys.platform == 'darwin': ncpu //= 2
+    config = tf.ConfigProto(allow_soft_placement=True,
+                            intra_op_parallelism_threads=ncpu,
+                            inter_op_parallelism_threads=ncpu)
+    config.gpu_options.allow_growth = True #pylint: disable=E1101
+    tf.Session(config=config).__enter__()
+    num_sub_in_grp = 1
+    args['task']='BerkeleyPacmanPO-v0'
+    seed=0
+    def make_env_vec(seed):
+        def make_env():
+            env = gym.make('BerkeleyPacmanPO-v0')
+            #env.seed(seed)
+            MONITORDIR = osp.join('savedir', 'monitor')
+            if not osp.exists(MONITORDIR):
+                os.makedirs(MONITORDIR)
+            monitor_path = osp.join(MONITORDIR, '%s-%d'%(args['task'], seed))
+            env = bench.Monitor(env, monitor_path, allow_early_resets=True)
+            #env = gym.wrappers.Monitor(env, MONITORDIR, force=True, 
+            #        video_callable=lambda episode_id: True)
+            if 'Atari' in str(env.__dict__['env']):
+                env = wrap_deepmind(env, frame_stack=True)
+            return env
+        return ppo.PacmanDummyVecEnv([make_env for _ in range(num_sub_in_grp)])
+
+    envobj = make_env_vec(np.random.randint(0, 2**31-1))
+    #env = gym.make('BerkeleyPacmanPO-v0')
+    args['max_maze_size'] = envobj.envs[0].env.MAX_MAZE_SIZE
+    args['maze_size'] = envobj.envs[0].env.maze_size
+    ppo.learn(env=envobj, nsteps=1, nminibatches=1,
+        lam=0.95, gamma=0.99, noptepochs=1, log_interval=1,
+        ent_coef=.01,
+        lr=lambda f : f * 2.5e-4,
+        cliprange=lambda f : f * 0.1,
+        total_timesteps=int(num_timesteps * 1.1),
+        nmap_args=args,load='/checkpoints/00001')
 
 
 def parse_arguments():
@@ -91,6 +129,7 @@ def parse_arguments():
     parser.add_argument('--rank',dest='rank',type=int, default=1)
     parser.add_argument('--output_size',dest='output_size',type=int, default=4)
     parser.add_argument('--env',dest='env',type=str, default='BerkeleyPacmanPO-v0')
+    parser.add_argument('--test',dest='test',type=int, default=0)
     return parser.parse_args()
 
 
@@ -135,13 +174,17 @@ def main(args):
     args['max_episode_length'] = 50
     args['gamma'] = 0.001
     args['tau'] = 0.001
+    args['test'] = argment.test
     rank = argment.rank
     output_size = argment.output_size
     env = argment.env
 
     logger.configure()
-    train(args, num_timesteps=1e5)
-
+    if args['test']:
+        test(args, num_timesteps=10)
+    else:
+        train(args, num_timesteps=1e5)
+    
 if __name__ == '__main__':
     main(sys.argv)
 
