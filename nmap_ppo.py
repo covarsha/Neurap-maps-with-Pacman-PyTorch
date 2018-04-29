@@ -255,6 +255,7 @@ def learn(*, env, nsteps, total_timesteps, ent_coef, lr, nmap_args,
             #import cloudpickle
             #with open(osp.join(nmap_args['savepath'], 'make_model.pkl'), 'wb') as fh:
                 #fh.write(cloudpickle.dumps(make_model))
+                
         epinfobuf = deque(maxlen=100)
         tfirststart = time.time()
 
@@ -363,7 +364,7 @@ def learn(*, env, nsteps, total_timesteps, ent_coef, lr, nmap_args,
                 actions, values, mem, old_c_t, ctx_state, neglogpacs = model.step(obs, states, dones)
                 states = (mem, np.expand_dims(old_c_t, 1), ctx_state)
                 obs, rewards, dones, infos = env.step(actions)
-                print ('dones',dones[-1])
+                env.envs[0].render()
                 states = model.act_model.get_initial_state(1,states,dones)
                 obs = [obs, infos]
 

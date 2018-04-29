@@ -15,8 +15,7 @@ import pdb
 
 from nmap import NeuralMapPolicy
 
-
-
+np.random.seed(42)
 
 def train(args, num_timesteps):
 
@@ -29,12 +28,12 @@ def train(args, num_timesteps):
     tf.Session(config=config).__enter__()
     num_sub_in_grp = 4
     args['task']='BerkeleyPacmanPO-v0'
-    args['savepath']='/checkpoints/'
     seed=0
-    def make_env_vec(seed):
-        def make_env():
+
+    def make_env_vec():
+        def make_env(seed_):
             env = gym.make('BerkeleyPacmanPO-v0')
-            #env.seed(seed)
+            env.seed(seed_)
             MONITORDIR = osp.join('savedir', 'monitor')
             if not osp.exists(MONITORDIR):
                 os.makedirs(MONITORDIR)
@@ -45,19 +44,20 @@ def train(args, num_timesteps):
             if 'Atari' in str(env.__dict__['env']):
                 env = wrap_deepmind(env, frame_stack=True)
             return env
-        return ppo.PacmanDummyVecEnv([make_env for _ in range(num_sub_in_grp)])
+        return ppo.PacmanDummyVecEnv([make_env(ix) for ix in range(num_sub_in_grp)])
 
-    envobj = make_env_vec(np.random.randint(0, 2**31-1))
+    envobj = make_env_vec()
     #env = gym.make('BerkeleyPacmanPO-v0')
     args['max_maze_size'] = envobj.envs[0].env.MAX_MAZE_SIZE
     args['maze_size'] = envobj.envs[0].env.maze_size
-    ppo.learn(env=envobj, nsteps=12, nminibatches=1,
+    ppo.learn(env=envobj, nsteps=500, nminibatches=1,
         lam=0.95, gamma=0.99, noptepochs=4, log_interval=1,
         ent_coef=.01,
-        lr=lambda f : f * 2.5e-4,
+        lr=lambda f : f * args['lr'],
         cliprange=lambda f : f * 0.1,
         total_timesteps=int(num_timesteps * 1.1),
         nmap_args=args)
+
 def test(args, num_timesteps):
     ncpu = multiprocessing.cpu_count()
     if sys.platform == 'darwin': ncpu //= 2
@@ -69,10 +69,11 @@ def test(args, num_timesteps):
     num_sub_in_grp = 1
     args['task']='BerkeleyPacmanPO-v0'
     seed=0
-    def make_env_vec(seed):
-        def make_env():
+    
+    def make_env_vec():
+        def make_env(seed_):
             env = gym.make('BerkeleyPacmanPO-v0')
-            #env.seed(seed)
+            env.seed(seed_)
             MONITORDIR = osp.join('savedir', 'monitor')
             if not osp.exists(MONITORDIR):
                 os.makedirs(MONITORDIR)
@@ -83,10 +84,10 @@ def test(args, num_timesteps):
             if 'Atari' in str(env.__dict__['env']):
                 env = wrap_deepmind(env, frame_stack=True)
             return env
-        return ppo.PacmanDummyVecEnv([make_env for _ in range(num_sub_in_grp)])
+        return ppo.PacmanDummyVecEnv([make_env(ix) for ix in range(num_sub_in_grp)])
 
-    envobj = make_env_vec(np.random.randint(0, 2**31-1))
-    #env = gym.make('BerkeleyPacmanPO-v0')
+    envobj = make_env_vec()
+
     args['max_maze_size'] = envobj.envs[0].env.MAX_MAZE_SIZE
     args['maze_size'] = envobj.envs[0].env.maze_size
     ppo.learn(env=envobj, nsteps=1, nminibatches=1,
@@ -95,7 +96,7 @@ def test(args, num_timesteps):
         lr=lambda f : f * 2.5e-4,
         cliprange=lambda f : f * 0.1,
         total_timesteps=int(num_timesteps * 1.1),
-        nmap_args=args,load='/checkpoints/00001')
+        nmap_args=args,load=args['test_load_ckpt'])
 
 
 def parse_arguments():
@@ -130,6 +131,12 @@ def parse_arguments():
     parser.add_argument('--output_size',dest='output_size',type=int, default=4)
     parser.add_argument('--env',dest='env',type=str, default='BerkeleyPacmanPO-v0')
     parser.add_argument('--test',dest='test',type=int, default=0)
+
+    parser.add_argument('--test-ckpt',dest='test_load_ckpt',type=int, default=0)
+
+    parser.add_argument('--savepath',dest='savepath',type=str, default='checkpoint') #Use 500 for testing
+    parser.add_argument('--lr',dest='lr',type=float, default=1e-4)
+
     return parser.parse_args()
 
 
@@ -175,9 +182,16 @@ def main(args):
     args['gamma'] = 0.001
     args['tau'] = 0.001
     args['test'] = argment.test
+    
+    args['test'] = argment.test
+    args['savepath'] = argment.savepath
+    args['lr'] = argment.lr
+    args['test_load_ckpt'] = argment.test_load_ckpt
+
     rank = argment.rank
     output_size = argment.output_size
     env = argment.env
+    
 
     logger.configure()
     if args['test']:
