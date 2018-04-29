@@ -83,7 +83,7 @@ def read_network(args):
                 kernel_size=[args['nmapr_filters'][l], args['nmapr_filters'][l]], \
                 stride=[args['nmapr_strides'][l], args['nmapr_strides'][l]],
                 padding="same",
-                data_format="NHWC",#NCHW
+                data_format="NCHW",#NCHW
                 activation_fn=string_to_nl(args['nmapr_nl'][l]))
 
         before_flatten = last_layer
