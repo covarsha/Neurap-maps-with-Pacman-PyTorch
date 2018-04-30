@@ -68,7 +68,7 @@ class NeuralMap(object):
 
         self.ctx_state_input = tf.placeholder(tf.float32, [2, None, args['memory_channels']], name='ctx_state_input')
         self.ctx_state_tuple = tf.nn.rnn_cell.LSTMStateTuple(self.ctx_state_input[0], self.ctx_state_input[1])
-        self.c_t, self.ctx_cx, self.ctx_state_new = context_network(args,
+        self.c_t, self.ctx_h, self.ctx_state_new = context_network(args,
             self.s_t,
             self.r_t,
             self.memory,
@@ -84,7 +84,7 @@ class NeuralMap(object):
             self.memory)
 
         self.feats = fc(
-            tf.concat([tf.squeeze(self.ctx_cx,1), self.c_t, tf.squeeze(self.w_t, 1)], 1),
+            tf.concat([tf.squeeze(self.ctx_h,1), self.c_t, tf.squeeze(self.w_t, 1)], 1),
             args['memory_channels'],
             activation_fn=tf.nn.elu)
 
@@ -205,20 +205,18 @@ class NeuralMapPolicy(object):
 
     def get_initial_state(self,nenv,past_states=None,dones=None):
         if past_states is not None and dones is not None:
-            initial_ = 0.01 * np.random.randn(nenv,256, self.args['memory_size'], self.args['memory_size'])
+            initial_ = 0.01 * np.random.randn(nenv, self.args['memory_channels'], self.args['memory_size'], self.args['memory_size'])
             initial_memory = np.transpose(np.multiply(np.transpose(past_states[0].copy(),(1,2,3,0)),1-dones),(3,0,1,2))
             initial_memory += np.transpose(np.multiply(np.transpose(initial_,(1,2,3,0)),dones),(3,0,1,2))
             
-            #initial_old_c_t = np.zeros((nenv, 1, self.args['memory_channels']))
             initial_old_c_t = np.transpose(np.multiply(np.transpose(past_states[1].copy(),(1,2,0)),1-dones),(2,0,1))
             
-            #initial_ctx_cx = (np.zeros((nenv, self.args['memory_channels'])), np.zeros((nenv, self.args['memory_channels'])))
-            initial_ctx_cx = (np.transpose(np.multiply(np.transpose(past_states[2][0].copy(),(1,0)),1-dones),(1,0)),np.transpose(np.multiply(np.transpose(past_states[2][1].copy(),(1,0)),1-dones),(1,0)))
-            initial_state = (initial_memory, initial_old_c_t, initial_ctx_cx)
+            initial_ctx_state = (np.transpose(np.multiply(np.transpose(past_states[2][0].copy(),(1,0)),1-dones),(1,0)),np.transpose(np.multiply(np.transpose(past_states[2][1].copy(),(1,0)),1-dones),(1,0)))
+            initial_state = (initial_memory, initial_old_c_t, initial_ctx_state)
             return initial_state
         else:
-            initial_memory = 0.01 * np.random.randn(nenv,256, self.args['memory_size'], self.args['memory_size'])
+            initial_memory = 0.01 * np.random.randn(nenv, self.args['memory_channels'], self.args['memory_size'], self.args['memory_size'])
             initial_old_c_t = np.zeros((nenv, 1, self.args['memory_channels']))
-            initial_ctx_cx = (np.zeros((nenv, self.args['memory_channels'])), np.zeros((nenv, self.args['memory_channels'])))
-            initial_state = (initial_memory, initial_old_c_t, initial_ctx_cx)
+            initial_ctx_state = (np.zeros((nenv, self.args['memory_channels'])), np.zeros((nenv, self.args['memory_channels'])))
+            initial_state = (initial_memory, initial_old_c_t, initial_ctx_state)
             return initial_state

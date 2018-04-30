@@ -136,7 +136,6 @@ def context_network(args, s_t, r_t, memory, old_c_t, extras,ctx_state_tuple,writ
         if args['egocentric']:
             map_scale *= 2.0
 
-
         # TODO: is do = po - l_po being used anywhere? why not?
 
         query = fc(cont_hx, args['memory_channels'], activation_fn=None) # ?xC

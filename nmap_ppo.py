@@ -53,7 +53,7 @@ class NeuralMapModel(object):
         _train = trainer.apply_gradients(grads)
 
         def train(lr, cliprange, obs, returns, masks, actions, values, neglogpacs, states=None):
-            advs = np.array(returns) - np.array(values[0])
+            advs = np.array(returns) - np.array(values)
             advs = (advs - advs.mean())/(advs.std() + 1e-8)
             obs_img, info = obs[0], obs[1]
 
@@ -167,11 +167,14 @@ class Runner(object):
             self.obs, rewards, self.dones, infos = self.env.step(actions)
             if infos.get('episode'):
                 epinfos.extend(infos['episode'])
+
+            # mask and return model states
             self.states = self.model.act_model.get_initial_state(self.nenv,self.states,self.dones)
             self.obs = [self.obs, infos]
 
             mb_rewards.append(rewards)
 
+        # split into tuple of (np.array(state observations), list of dictionaries)
         mb_obs = (np.asarray([m[0] for m in mb_obs]), [m[1] for m in mb_obs])
         mb_rewards = np.asarray(mb_rewards, dtype=np.float32)
         mb_actions = np.asarray(mb_actions)
@@ -197,22 +200,15 @@ class Runner(object):
         return ((sf01(mb_obs[0]), sf01dict(mb_obs[1], self.nenv)), sf01(mb_returns), sf01(mb_dones), sf01(mb_actions), sf01(mb_values), sf01(mb_neglogpacs),
             mb_states, epinfos)
 
-
 def sf01dict(arr, nenvs):
     flattened_list_dicts = []
     for env_ix in range(nenvs):
         for arr_item in arr:
             new_dict = {}
             for k in arr_item:
-                try:
-                    new_dict[k] = [arr_item[k][env_ix]]
-                except:
-                    import pdb
-                    #pdb.set_trace()
+                new_dict[k] = [arr_item[k][env_ix]]
             flattened_list_dicts.append(new_dict)
     return flattened_list_dicts
-
-
 
 def sf01(arr):
     """
