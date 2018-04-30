@@ -86,10 +86,6 @@ class NeuralMapModel(object):
             td_map[train_model.nmap.memory] = memory
             td_map[train_model.nmap.old_c_t] = old_c_t
             td_map[train_model.nmap.ctx_state_input] = ctx_state
-            a =  sess.run(
-                [train_model.nmap.before_flatten, train_model.nmap.after_flatten, train_model.nmap.s_t],
-                td_map
-            )
             return sess.run(
                 [pg_loss, vf_loss, entropy, approxkl, clipfrac, _train],
                 td_map
@@ -166,7 +162,9 @@ class Runner(object):
 
             self.obs, rewards, self.dones, infos = self.env.step(actions)
             if infos.get('episode'):
-                epinfos.extend(infos['episode'])
+                epinfo_ = infos['episode']
+                epinfo_ = [e for e in epinfo_ if e is not None]
+                epinfos.extend(epinfo_)
 
             # mask and return model states
             self.states = self.model.act_model.get_initial_state(self.nenv,self.states,self.dones)
@@ -206,7 +204,12 @@ def sf01dict(arr, nenvs):
         for arr_item in arr:
             new_dict = {}
             for k in arr_item:
-                new_dict[k] = [arr_item[k][env_ix]]
+                if k == 'episode' and arr_item[k][env_ix] is not [None]: # TODO: janky!!!
+                    new_dict['episode'] = arr_item['episode'][env_ix]
+                else:
+                    new_dict[k] = [arr_item[k][env_ix]]
+            if 'episode' in new_dict and new_dict['episode'] is None:
+                del new_dict['episode']
             flattened_list_dicts.append(new_dict)
     return flattened_list_dicts
 
@@ -225,7 +228,7 @@ def constfn(val):
 def learn(*, env, nsteps, total_timesteps, ent_coef, lr, nmap_args,
             vf_coef=0.5,  max_grad_norm=0.5, gamma=0.99, lam=0.95,
              nminibatches=4, noptepochs=1, cliprange=0.2,
-            save_interval=10,load=None):
+            log_interval=1, save_interval=10,load=None):
 
     if isinstance(lr, float): lr = constfn(lr)
     else: assert callable(lr)
@@ -376,36 +379,31 @@ def learn(*, env, nsteps, total_timesteps, ent_coef, lr, nmap_args,
 def safemean(xs):
     return np.nan if len(xs) == 0 else np.mean(xs)
 
-
-
 class PacmanDummyVecEnv(DummyVecEnv):
-
     def step_wait(self):
-        
         for i in range(self.num_envs):
             obs_tuple, self.buf_rews[i], self.buf_dones[i], self.buf_infos[i] = self.envs[i].step(self.actions[i])
             if self.buf_dones[i]:
                 obs_tuple = self.envs[i].reset()
-                self.buf_infos[i] = self.envs[i].initial_info
+                buf_info = self.envs[i].initial_info
+                buf_info['episode'] = self.buf_infos[i]['episode'] # explicit remembering epinfo (of prev episode)
+                self.buf_infos[i] = buf_info.copy()
             if isinstance(obs_tuple, (tuple, list)):
                 for t,x in enumerate(obs_tuple):
                     self.buf_obs[t][i] = x
             else:
                 self.buf_obs[0][i] = obs_tuple
-
+        
         self.info = self.buf_infos[0]
-        self.info['episode'] = [] # holds episode information here
         for i in range(1, self.num_envs):
             for k in self.buf_infos[i]:
                 if k in self.buf_infos[i] and k in self.info:
                     self.info[k].extend(self.buf_infos[i][k])
-
         return (self._obs_from_buf(), np.copy(self.buf_rews), np.copy(self.buf_dones),
                 self.info.copy())
 
     def initial_info(self):
         initial_info_ = self.envs[0].initial_info
-        initial_info_['episode'] = []
         for i in range(1, self.num_envs):
             for k in self.envs[i].initial_info:
                 initial_info_[k].extend(self.envs[i].initial_info[k])

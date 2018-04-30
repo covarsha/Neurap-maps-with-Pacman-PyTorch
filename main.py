@@ -39,7 +39,6 @@ def train(args, num_timesteps):
                 MONITORDIR = osp.join('savedir', 'monitor')
                 if not osp.exists(MONITORDIR):
                     os.makedirs(MONITORDIR)
-                monitor_path = osp.join(MONITORDIR, '%s-%d'%(args['task'], seed))
                 return env
             return _thunk
         return ppo.PacmanDummyVecEnv([make_env(ix) for ix in range(num_sub_in_grp)])
@@ -49,7 +48,7 @@ def train(args, num_timesteps):
     args['max_maze_size'] = envobj.envs[0].MAX_MAZE_SIZE
     args['maze_size'] = envobj.envs[0].maze_size
     ppo.learn(env=envobj, nsteps=500, nminibatches=1,
-        lam=0.95, gamma=0.99, noptepochs=4, log_interval=1,
+        lam=0.95, gamma=0.99, noptepochs=4,
         ent_coef=.01,
         lr=lambda f : f * args['lr'],
         cliprange=lambda f : f * 0.1,
@@ -82,7 +81,7 @@ def test(args, num_timesteps):
     args['max_maze_size'] = envobj.envs[0].MAX_MAZE_SIZE
     args['maze_size'] = envobj.envs[0].maze_size
     ppo.learn(env=envobj, nsteps=1, nminibatches=1,
-        lam=0.95, gamma=0.99, noptepochs=1, log_interval=1,
+        lam=0.95, gamma=0.99, noptepochs=1, 
         ent_coef=.01,
         lr=lambda f : f * 2.5e-4,
         cliprange=lambda f : f * 0.1,
