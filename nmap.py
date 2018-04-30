@@ -44,8 +44,6 @@ class NeuralMap(object):
         # Supported write types
         assert((self.write_type == 'gru') or (self.write_type == 'lstm'))
 
-        input_size = self.input_dims[0] * self.input_dims[1] # *self.input_dims[2]
-
         ##############################################################
         # State model
         self.s_t, self.inputs = basenet(args, self.input_dims)
@@ -110,20 +108,20 @@ class NeuralMap(object):
         shift_memory = 0.01 * np.random.randn(memory.shape[0], memory.shape[1], memory.shape[2], memory.shape[3])
         mem_sz = memory.shape[2]
         srcboundy = (
-                    np.maximum(velocity[:,0], 0.0).astype(np.int32),
-                    np.minimum(mem_sz + velocity[:,0], mem_sz).astype(np.int32)
+                    np.maximum(scaled_velocity[:,0], 0.0).astype(np.int32),
+                    np.minimum(mem_sz + scaled_velocity[:,0], mem_sz).astype(np.int32)
             )
         srcboundx = (
-                np.maximum(velocity[:,1], 0.0).astype(np.int32),
-                np.minimum(mem_sz + velocity[:,1], mem_sz).astype(np.int32)
+                np.maximum(scaled_velocity[:,1], 0.0).astype(np.int32),
+                np.minimum(mem_sz + scaled_velocity[:,1], mem_sz).astype(np.int32)
             )
         dstboundy = (
-                np.maximum(-velocity[:,0], 0.0).astype(np.int32),
-                np.minimum(mem_sz - velocity[:,0], mem_sz).astype(np.int32)
+                np.maximum(-scaled_velocity[:,0], 0.0).astype(np.int32),
+                np.minimum(mem_sz - scaled_velocity[:,0], mem_sz).astype(np.int32)
             )
         dstboundx = (
-                np.maximum(-velocity[:,1], 0.0).astype(np.int32),
-                np.minimum(mem_sz - velocity[:,1], mem_sz).astype(np.int32)
+                np.maximum(-scaled_velocity[:,1], 0.0).astype(np.int32),
+                np.minimum(mem_sz - scaled_velocity[:,1], mem_sz).astype(np.int32)
             )
         for ix in range(memory.shape[0]):
             shift_memory[ix,:,dstboundy[0][ix]:dstboundy[1][ix],dstboundx[0][ix]:dstboundx[1][ix]] = \
