@@ -83,7 +83,7 @@ def read_network(args):
                 kernel_size=[args['nmapr_filters'][l], args['nmapr_filters'][l]], \
                 stride=[args['nmapr_strides'][l], args['nmapr_strides'][l]],
                 padding="same",
-                data_format="NCHW",#NCHW
+                data_format="NHWC",
                 activation_fn=string_to_nl(args['nmapr_nl'][l]))
 
         before_flatten = last_layer
@@ -172,6 +172,4 @@ def write_network(args, s_t, r_t, c_t, memory):
             initial_state=old_write,
             dtype=tf.float32,
         )
-
-
     return w_t

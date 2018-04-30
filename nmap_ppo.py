@@ -285,10 +285,9 @@ def learn(*, env, nsteps, total_timesteps, ent_coef, lr, nmap_args,
                 flatinds = np.arange(nenvs*nsteps).reshape(nenvs,nsteps)
                 envsperbatch = nbatch_train // nsteps
 
-                states = states[:-1]
+                states = states[:-1] # ignore the last state
                 for _ in range(noptepochs):
                     np.random.shuffle(envinds)
-                    # TODO: this needs to be uncommented (and made to work for multi-env)
 
                     for start in range(0, nenvs, envsperbatch):
                         end = start + envsperbatch
@@ -300,7 +299,8 @@ def learn(*, env, nsteps, total_timesteps, ent_coef, lr, nmap_args,
                         
                         slices.insert(0, (obs[0][mbflatinds], [obs[1][ix] for ix in mbflatinds]))
 
-                        
+                        # mbstates := list of size nsteps -> each element is 3-tuple
+                        # each element is of shape (nenv, state_dims) (for e.g.) memory could be (nenv, nchannels, mem_sz, mem_sz)
                         mbstates = (
                             np.array([states[ix % nsteps][0][ix // nsteps, ...] for ix in mbflatinds]),
                             np.array([states[ix % nsteps][1][ix // nsteps, ...] for ix in mbflatinds]),
@@ -333,7 +333,6 @@ def learn(*, env, nsteps, total_timesteps, ent_coef, lr, nmap_args,
                 os.makedirs(checkdir, exist_ok=True)
                 savepath = osp.join(checkdir, '%.5i'%update)
                 print('Saving to', savepath)
-                #model.save(savepath)
                 model.save(path=savepath)
     else:
         model.load(load)
@@ -387,7 +386,7 @@ class PacmanDummyVecEnv(DummyVecEnv):
             obs_tuple, self.buf_rews[i], self.buf_dones[i], self.buf_infos[i] = self.envs[i].step(self.actions[i])
             if self.buf_dones[i]:
                 obs_tuple = self.envs[i].reset()
-                self.buf_infos[i] = self.envs[i].env.initial_info
+                self.buf_infos[i] = self.envs[i].initial_info
             if isinstance(obs_tuple, (tuple, list)):
                 for t,x in enumerate(obs_tuple):
                     self.buf_obs[t][i] = x
@@ -395,6 +394,7 @@ class PacmanDummyVecEnv(DummyVecEnv):
                 self.buf_obs[0][i] = obs_tuple
 
         self.info = self.buf_infos[0]
+        self.info['episode'] = [] # holds episode information here
         for i in range(1, self.num_envs):
             for k in self.buf_infos[i]:
                 if k in self.buf_infos[i] and k in self.info:
@@ -404,10 +404,11 @@ class PacmanDummyVecEnv(DummyVecEnv):
                 self.info.copy())
 
     def initial_info(self):
-        initial_info_ = self.envs[0].env.initial_info
+        initial_info_ = self.envs[0].initial_info
+        initial_info_['episode'] = []
         for i in range(1, self.num_envs):
-            for k in self.envs[i].env.initial_info:
-                initial_info_[k].extend(self.envs[i].env.initial_info[k])
+            for k in self.envs[i].initial_info:
+                initial_info_[k].extend(self.envs[i].initial_info[k])
         return initial_info_
 
 

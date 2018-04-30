@@ -103,7 +103,7 @@ class NeuralMap(object):
 
         scaled_pos = rescale_func(pos)
         scaled_p_pos = rescale_func(lpos)
-        scaled_velocity = scaled_pos - scaled_p_pos
+        scaled_velocity = (scaled_pos - scaled_p_pos).astype(np.int)
 
         shift_memory = 0.01 * np.random.randn(memory.shape[0], memory.shape[1], memory.shape[2], memory.shape[3])
         mem_sz = memory.shape[2]

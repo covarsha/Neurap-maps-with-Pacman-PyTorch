@@ -30,24 +30,26 @@ def train(args, num_timesteps):
     seed=0
 
     def make_env_vec():
-        def make_env(seed_):
-            env = gym.make(args['env'])
-            env.seed(seed_)
-            MONITORDIR = osp.join('savedir', 'monitor')
-            if not osp.exists(MONITORDIR):
-                os.makedirs(MONITORDIR)
-            monitor_path = osp.join(MONITORDIR, '%s-%d'%(args['env'], seed))
-            env = bench.Monitor(env, monitor_path, allow_early_resets=True)
-            #env = gym.wrappers.Monitor(env, MONITORDIR, force=True, 
-            #        video_callable=lambda episode_id: True)
-            return env
+
+        def make_env(seed):
+            def _thunk():
+                env = gym.make('BerkeleyPacmanPO-v0')
+                print('using seed', seed)
+                env.seed(seed)
+                MONITORDIR = osp.join('savedir', 'monitor')
+                if not osp.exists(MONITORDIR):
+                    os.makedirs(MONITORDIR)
+                monitor_path = osp.join(MONITORDIR, '%s-%d'%(args['task'], seed))
+                return env
+            return _thunk
         return ppo.PacmanDummyVecEnv([make_env(ix) for ix in range(num_sub_in_grp)])
 
     envobj = make_env_vec()
-    args['max_maze_size'] = envobj.envs[0].env.MAX_MAZE_SIZE
-    args['maze_size'] = envobj.envs[0].env.maze_size
-    ppo.learn(env=envobj, nsteps=500, nminibatches=4,
-        lam=0.95, gamma=0.99, noptepochs=4, save_interval=10,
+    #env = gym.make('BerkeleyPacmanPO-v0')
+    args['max_maze_size'] = envobj.envs[0].MAX_MAZE_SIZE
+    args['maze_size'] = envobj.envs[0].maze_size
+    ppo.learn(env=envobj, nsteps=500, nminibatches=1,
+        lam=0.95, gamma=0.99, noptepochs=4, log_interval=1,
         ent_coef=.01,
         lr=lambda f : f * args['lr'],
         cliprange=lambda f : f * 0.1,
@@ -72,17 +74,13 @@ def test(args, num_timesteps):
             MONITORDIR = osp.join('savedir', 'monitor')
             if not osp.exists(MONITORDIR):
                 os.makedirs(MONITORDIR)
-            monitor_path = osp.join(MONITORDIR, '%s-%d'%(args['env'], seed))
-            env = bench.Monitor(env, monitor_path, allow_early_resets=True)
-            #env = gym.wrappers.Monitor(env, MONITORDIR, force=True, 
-            #        video_callable=lambda episode_id: True)
             return env
         return ppo.PacmanDummyVecEnv([make_env(ix) for ix in range(num_sub_in_grp)])
 
     envobj = make_env_vec()
 
-    args['max_maze_size'] = envobj.envs[0].env.MAX_MAZE_SIZE
-    args['maze_size'] = envobj.envs[0].env.maze_size
+    args['max_maze_size'] = envobj.envs[0].MAX_MAZE_SIZE
+    args['maze_size'] = envobj.envs[0].maze_size
     ppo.learn(env=envobj, nsteps=1, nminibatches=1,
         lam=0.95, gamma=0.99, noptepochs=1, log_interval=1,
         ent_coef=.01,
@@ -172,7 +170,6 @@ def main(args):
     args['test_load_ckpt'] = argment.test_load_ckpt
     args['nenv'] = argment.nenv
     env = argment.env
-    
 
     logger.configure()
     if args['test']:
