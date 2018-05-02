@@ -65,9 +65,10 @@ class NeuralMapModel(object):
 
             td_map = {
                 train_model.nmap.inputs: obs_img,
-                train_model.nmap.extras['pos']: np.squeeze(pos, 1),
-                train_model.nmap.extras['p_pos']: np.squeeze(p_pos, 1),
-                train_model.nmap.extras['timestep']: np.expand_dims([t % nmap_args['max_timestep'] for t in step_counter], 1),
+                train_model.nmap.pos: np.squeeze(pos, 1),
+                train_model.nmap.p_pos: np.squeeze(p_pos, 1),
+                train_model.nmap.timestep: np.expand_dims([t % nmap_args['max_timestep'] for t in step_counter], 1),
+                train_model.nmap.masks: masks,
                 CLIPRANGE: cliprange,
                 LR: lr,
                 OLDNEGLOGPAC: np.squeeze(neglogpacs),
@@ -79,13 +80,12 @@ class NeuralMapModel(object):
             if states is None:
                 print('asdasdasd')
             else:
-                memory, old_c_t, ctx_state = states[0].squeeze(), np.expand_dims(states[1].squeeze(), 1), states[2].squeeze()
-
-            ctx_state = np.transpose(ctx_state,(1,0,2))
+                memory, old_c_t, ctx_state = states
 
             td_map[train_model.nmap.memory] = memory
             td_map[train_model.nmap.old_c_t] = old_c_t
-            td_map[train_model.nmap.ctx_state_input] = ctx_state
+            td_map[train_model.nmap.ctx_state_tuple] = ctx_state
+            
             return sess.run(
                 [pg_loss, vf_loss, entropy, approxkl, clipfrac, _train],
                 td_map
@@ -147,18 +147,15 @@ class Runner(object):
 
     def run(self):
         mb_obs, mb_rewards, mb_actions, mb_values, mb_dones, mb_neglogpacs = [],[],[],[],[],[]
-        mb_states = [self.states]
+        mb_states = self.states
         epinfos = []
         for _ in range(self.nsteps):
-            actions, values, mem, old_c_t, ctx_state, neglogpacs = self.model.step(self.obs, self.states, self.dones)
-            self.states = (mem, np.expand_dims(old_c_t, 1), ctx_state)
-
+            actions, values, self.states, neglogpacs = self.model.step(self.obs, self.states, self.dones)
             mb_obs.append(self.obs.copy())
             mb_actions.append(actions)
             mb_values.append(values)
             mb_neglogpacs.append(neglogpacs)
             mb_dones.append(self.dones)
-            mb_states.append(self.states)
 
             self.obs, rewards, self.dones, infos = self.env.step(actions)
             if infos.get('episode'):
@@ -171,6 +168,7 @@ class Runner(object):
             self.obs = [self.obs, infos]
 
             mb_rewards.append(rewards)
+            
 
         # split into tuple of (np.array(state observations), list of dictionaries)
         mb_obs = (np.asarray([m[0] for m in mb_obs]), [m[1] for m in mb_obs])
@@ -295,20 +293,9 @@ def learn(*, env, nsteps, total_timesteps, ent_coef, lr, nmap_args,
                     for start in range(0, nenvs, envsperbatch):
                         end = start + envsperbatch
                         mbenvinds = envinds[start:end]
-
                         mbflatinds = flatinds[mbenvinds].ravel()
-
                         slices = list(arr[mbflatinds] for arr in (returns, masks, actions, values, neglogpacs))
-                        
                         slices.insert(0, (obs[0][mbflatinds], [obs[1][ix] for ix in mbflatinds]))
-
-                        # mbstates := list of size nsteps -> each element is 3-tuple
-                        # each element is of shape (nenv, state_dims) (for e.g.) memory could be (nenv, nchannels, mem_sz, mem_sz)
-                        mbstates = (
-                            np.array([states[ix % nsteps][0][ix // nsteps, ...] for ix in mbflatinds]),
-                            np.array([states[ix % nsteps][1][ix // nsteps, ...] for ix in mbflatinds]),
-                            np.array([(states[ix % nsteps][2][0][ix // nsteps, ...], states[ix % nsteps][2][1][ix // nsteps, ...]) for ix in mbflatinds])
-                        )
 
                         mblossvals.append(model.train(lrnow, cliprangenow, *slices, mbstates))
 

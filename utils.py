@@ -1,16 +1,11 @@
-import math
-import numpy as np
-
-import sys
-import argparse
-
 import tensorflow as tf
-
+import numpy as np
 
 fc = tf.contrib.layers.fully_connected
 conv2d = tf.contrib.layers.conv2d
 arg_scope = tf.contrib.framework.arg_scope
 flatten = tf.contrib.layers.flatten
+
 
 def string_to_nl(nlstr):
     # Get read network nonlinearity
@@ -23,34 +18,8 @@ def string_to_nl(nlstr):
     elif nlstr == 'sigmoid':
         return tf.nn.sigmoid
 
-def normalized_columns_initializer(weights, std=1.0):
-    out = torch.randn(weights.size())
-    out *= std / torch.sqrt(out.pow(2).sum(1)[:,None].expand_as(out))
-    return out
-
-def weights_init(m):
-    classname = m.__class__.__name__
-    if classname.find('Conv') != -1:
-        weight_shape = list(m.weight.data.size())
-        fan_in = np.prod(weight_shape[1:4])
-        fan_out = np.prod(weight_shape[2:4]) * weight_shape[0]
-        w_bound = np.sqrt(6. / (fan_in + fan_out))
-        m.weight.data.uniform_(-w_bound, w_bound)
-        m.bias.data.fill_(0)
-    elif classname.find('Linear') != -1:
-        weight_shape = list(m.weight.data.size())
-        fan_in = weight_shape[1]
-        fan_out = weight_shape[0]
-        w_bound = np.sqrt(6. / (fan_in + fan_out))
-        m.weight.data.uniform_(-w_bound, w_bound)
-        m.bias.data.fill_(0)
-
-
-def basenet(args, input_dims):
+def basenet(args, inputs):
     with tf.variable_scope('statenet'):
-        inputs = tf.placeholder(tf.float32,
-            shape=[None] + input_dims,
-            name='inputs')
         last_layer = inputs
         for l in range(len(args['n_units'])):
             last_layer = conv2d(inputs=last_layer,
@@ -64,17 +33,10 @@ def basenet(args, input_dims):
 
         for l in range(len(args['n_hid'])):
             last_layer = fc(last_layer, args['n_hid'][l], activation_fn=string_to_nl(args['nl'][l]))
-        return last_layer, inputs
+        return last_layer
 
-
-def read_network(args):
-    with tf.variable_scope('readnet'):
-        memory = tf.placeholder(tf.float32,
-            shape=[None, args['memory_channels'],
-                args['memory_size'],
-                args['memory_size']],
-            name='memory'
-        )
+def read_network(args, memory, reuse=False):
+    with tf.variable_scope('readnet', reuse=reuse):
         last_layer = memory
 
         for l in range(len(args['nmapr_n_units'])):
@@ -83,7 +45,7 @@ def read_network(args):
                 kernel_size=[args['nmapr_filters'][l], args['nmapr_filters'][l]], \
                 stride=[args['nmapr_strides'][l], args['nmapr_strides'][l]],
                 padding="same",
-                data_format="NHWC",
+                data_format="NCHW",
                 activation_fn=string_to_nl(args['nmapr_nl'][l]))
 
         before_flatten = last_layer
@@ -97,13 +59,12 @@ def read_network(args):
         for l in range(len(args['nmapr_n_hid'])):
             last_layer = fc(last_layer, args['nmapr_n_hid'][l],
                 activation_fn=string_to_nl(args['nmapr_nl'][l]))
-
     r_t = last_layer
-    return r_t, memory, before_flatten, after_flatten
+    return r_t
 
-def context_network(args, s_t, r_t, memory, old_c_t, extras,ctx_state_tuple,write_type='lstm'):
+def context_network(args, s_t, r_t, memory, old_c_t, velocity, timestep, ctx_state_tuple,write_type='lstm', reuse=False):
 
-    with tf.variable_scope('contextnet'):
+    with tf.variable_scope('contextnet', reuse=reuse):
 
         ctx_lstm = tf.contrib.rnn.BasicLSTMCell(args['memory_channels'],
             state_is_tuple=True,
@@ -111,21 +72,19 @@ def context_network(args, s_t, r_t, memory, old_c_t, extras,ctx_state_tuple,writ
 
         input_vec = [s_t]
 
-        velocity = extras['pos'] - extras['p_pos']
         input_vec.append(tf.cast(velocity, tf.float32))
 
         timestep = tf.squeeze(tf.one_hot(
-                extras['timestep'],
+                timestep,
                 args['max_timestep'],
                 on_value=1.0,
                 off_value=0.0), 1)
         input_vec.append(timestep)
 
         input_vec.append(r_t)
-        input_vec.append(tf.squeeze(old_c_t,1))
+        input_vec.append(old_c_t)
         input_vec = tf.expand_dims(tf.concat(input_vec, 1), 1)
-        # ctx_hx, ctx_cx = ctx_lstm(input_vec)
-        # TODO: check if this is correct
+        
         cont_hx, ctx_state_new_tuple = tf.nn.dynamic_rnn(ctx_lstm, input_vec,
                                         initial_state=ctx_state_tuple,
                                         dtype=tf.float32)
@@ -158,18 +117,94 @@ def context_network(args, s_t, r_t, memory, old_c_t, extras,ctx_state_tuple,writ
 
     return c_t, cont_hx, ctx_state_new_tuple
 
-
-def write_network(args, s_t, r_t, c_t, memory):
-    with tf.variable_scope('writenet'):
-        write_py, write_px = args['memory_size'] // 2, args['memory_size'] // 2
+def write_network(args, s_t, r_t, c_t, memory, write_loc, nenv, reuse=False):
+    with tf.variable_scope('writenet', reuse=reuse):
+        write_py, write_px = memory.shape[2] // 2, memory.shape[3] // 2
         write_output_size = args['memory_channels']
         old_write = memory[:,:,write_py,write_px]
         write_input = tf.expand_dims(tf.concat([s_t, r_t, c_t, old_write], axis=1), 1)
         write_update_gru = tf.contrib.rnn.GRUCell(write_output_size)
+        
+        shape = tf.constant([nenv, args['memory_channels'], args['memory_size'], args['memory_size']])
 
         w_t, state = tf.nn.dynamic_rnn(write_update_gru,
             write_input,
             initial_state=old_write,
             dtype=tf.float32,
         )
-    return w_t
+        memory = memory - tf.scatter_nd(write_loc, tf.gather_nd(memory, write_loc), shape)
+        memory = memory + tf.scatter_nd(write_loc, tf.reshape(w_t, [nenv * args['memory_channels']]), shape)
+    return w_t, memory
+
+def batch_to_seq(h, nbatch, nsteps, flat=False):
+    if flat:
+        h = tf.reshape(h, [nbatch, nsteps])
+    else:
+        h = tf.reshape(h, [nbatch, nsteps, -1])
+    return [tf.squeeze(v, [1]) for v in tf.split(axis=1, num_or_size_splits=nsteps, value=h)]
+
+def seq_to_batch(h, flat = False):
+    shape = h[0].get_shape().as_list()
+    if not flat:
+        assert(len(shape) > 1)
+        nh = h[0].get_shape()[-1].value
+        return tf.reshape(tf.concat(axis=1, values=h), [-1, nh])
+    else:
+        return tf.reshape(tf.stack(values=h, axis=1), [-1])
+
+def model(args, nbatch, nsteps, reuse=False):
+    
+    nenv = nbatch // nsteps
+    
+    write_loc = np.zeros((nenv * args['memory_channels'], 4), dtype=np.int32)
+    write_loc = np.zeros((nenv * args['memory_channels'], 4), dtype=np.int32)
+    
+    for e in range(nenv):
+        for c in range(args['memory_channels']):
+            write_loc[args['memory_channels'] * e + c, 0 ] = e
+            write_loc[args['memory_channels'] * e + c, 1 ] = c
+            write_loc[args['memory_channels'] * e + c, 2: ] = args['memory_size'] // 2
+    write_loc = tf.constant(write_loc)
+    
+    feats = []
+    with tf.variable_scope("model", reuse=reuse):
+        # nbatch x ?
+        statenet_out = basenet(args, inputs)
+        velocity = pos - p_pos
+        
+        
+        s_ts = batch_to_seq(statenet_out, nenv, nsteps)
+        vels = batch_to_seq(velocity, nenv, nsteps)
+        timesteps = batch_to_seq(timestep, nenv, nsteps)
+        masks = batch_to_seq(masks, nenv, nsteps)
+        
+        sizes = tf.constant(np.tile([[nenv, args['memory_channels'], args['memory_size'], args['memory_size']]], [nenv, 1]))
+        
+        i = 0
+        for s_t, vel, tm, m in zip(s_ts, vels, timesteps, masks):
+            net_reuse = i > 0
+            shifted_memories = []
+            vel = tf.cast(vel, tf.int32)
+            for m_ix in range(nenv):
+                shifted_memories.append(tf.expand_dims(
+                    tf.slice(memory[m_ix, :, :, :] * (1 - m[m_ix]), 
+                             [0, vel[m_ix,0] + 1,vel[m_ix,1]], 
+                             [args['memory_channels'], args['memory_size'], args['memory_size']]
+                        ), 0))
+            memory = tf.concat(shifted_memories, axis=0, name='shifted_memory')
+            r_t = read_network(args, memory, reuse=net_reuse)
+            
+            # mask c_t
+            c_t = c_t * (1 - m)
+            ctx_state_tuple = tf.nn.rnn_cell.LSTMStateTuple(ctx_state_tuple[0] * (1 - m), ctx_state_tuple[1] * (1 - m))
+            
+            c_t, cont_hx, ctx_state_tuple = context_network(args, s_t, r_t, memory, c_t, vel, tm, ctx_state_tuple, reuse=net_reuse)
+            w_t, memory = write_network(args, s_t, r_t, c_t, memory, write_loc, nenv, reuse=net_reuse)
+            f_t = fc(
+                tf.concat([tf.squeeze(cont_hx,1), c_t, tf.squeeze(w_t, 1)], 1),
+                    args['memory_channels'],
+                    activation_fn=tf.nn.elu)
+            feats.append(f_t)
+            i += 1
+        feats = seq_to_batch(feats)
+    return memory, c_t, ctx_state_tuple, feats
