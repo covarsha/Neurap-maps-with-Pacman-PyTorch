@@ -164,7 +164,7 @@ class Runner(object):
                 epinfos.extend(epinfo_)
 
             # mask and return model states
-            self.states = self.model.act_model.get_initial_state(self.nenv,self.states,self.dones)
+            self.states = self.model.act_model.get_initial_state(self.nenv)
             self.obs = [self.obs, infos]
 
             mb_rewards.append(rewards)
@@ -276,7 +276,8 @@ def learn(*, env, nsteps, total_timesteps, ent_coef, lr, nmap_args,
                         end = start + nbatch_train
                         mbinds = inds[start:end]
                         slices = (arr[mbinds] for arr in (obs, returns, masks, actions, values, neglogpacs))
-                        mblossvals.append(model.train(lrnow, cliprangenow, *slices))
+                        # mb_states = (states[0][mbinds], states[1][mbinds], states[2][mbinds]
+                        mblossvals.append(model.train(lrnow, cliprangenow, *slices, mb_states))
             else: # recurrent version
                 assert nenvs % nminibatches == 0
                 mblossvals=[]
@@ -286,7 +287,6 @@ def learn(*, env, nsteps, total_timesteps, ent_coef, lr, nmap_args,
                 flatinds = np.arange(nenvs*nsteps).reshape(nenvs,nsteps)
                 envsperbatch = nbatch_train // nsteps
 
-                states = states[:-1] # ignore the last state
                 for _ in range(noptepochs):
                     np.random.shuffle(envinds)
 
@@ -296,8 +296,9 @@ def learn(*, env, nsteps, total_timesteps, ent_coef, lr, nmap_args,
                         mbflatinds = flatinds[mbenvinds].ravel()
                         slices = list(arr[mbflatinds] for arr in (returns, masks, actions, values, neglogpacs))
                         slices.insert(0, (obs[0][mbflatinds], [obs[1][ix] for ix in mbflatinds]))
+                        mb_states = (states[0][mbenvinds], states[1][mbenvinds], (states[2][0][mbenvinds], states[2][1][mbenvinds]))
 
-                        mblossvals.append(model.train(lrnow, cliprangenow, *slices, mbstates))
+                        mblossvals.append(model.train(lrnow, cliprangenow, *slices, mb_states))
 
 
 

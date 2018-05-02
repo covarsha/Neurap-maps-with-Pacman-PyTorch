@@ -47,7 +47,7 @@ def train(args, num_timesteps):
     #env = gym.make('BerkeleyPacmanPO-v0')
     args['max_maze_size'] = envobj.envs[0].MAX_MAZE_SIZE
     args['maze_size'] = envobj.envs[0].maze_size
-    ppo.learn(env=envobj, nsteps=100, nminibatches=1,
+    ppo.learn(env=envobj, nsteps=500, nminibatches=1,
         lam=0.95, gamma=0.99, noptepochs=4,
         ent_coef=.1,
         lr=lambda f : f * args['lr'],

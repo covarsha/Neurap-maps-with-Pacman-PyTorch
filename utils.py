@@ -187,9 +187,10 @@ def get_model(args, nbatch, nsteps, inputs, memory, c_t, ctx_state_tuple,
             shifted_memories = []
             vel = tf.cast(vel, tf.int32)
             for m_ix in range(nenv):
+                mem = tf.pad(memory[m_ix, :, :, :], [[0,0],[1,1],[1,1]])
                 shifted_memories.append(tf.expand_dims(
-                    tf.slice(memory[m_ix, :, :, :] * (1 - m[m_ix]),
-                             [0, vel[m_ix,0] + 1,vel[m_ix,1]],
+                    tf.slice(mem * (1 - m[m_ix]),
+                             [0, vel[m_ix,0] + 1,vel[m_ix,1] + 1],
                              [args['memory_channels'], args['memory_size'], args['memory_size']]
                         ), 0))
             memory = tf.concat(shifted_memories, axis=0, name='shifted_memory')

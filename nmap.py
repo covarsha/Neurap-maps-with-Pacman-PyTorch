@@ -60,7 +60,8 @@ class NeuralMap(object):
         self.pos = tf.placeholder(tf.float32, shape=[nbatch, 2], name='pos')
         self.p_pos = tf.placeholder(tf.float32, shape=[nbatch, 2], name='p_pos')
         self.timestep = tf.placeholder(tf.int64, shape=[nbatch, 1], name='timestep')
-        self.masks = tf.placeholder(tf.float32, shape=[nbatch, 1], name='masks')
+        self.masks = tf.placeholder(tf.float32, shape=[nbatch,], name='masks')
+
 
         self.memory_out, self.c_t_out, self.ctx_state_tuple_out, self.feats = get_model(args, nbatch, nsteps,
             self.inputs, self.memory, self.old_c_t, self.ctx_state_tuple,
@@ -94,16 +95,16 @@ class NeuralMapPolicy(object):
             memory, old_c_t, ctx_state = state
 
             # shift memory first
-            a, v0, w_t, c_t, c_new, neglogp = sess.run([
+            a, v0, new_memory, c_t, c_new, neglogp = sess.run([
                         self.A,
                         self.v0,
                         self.nmap.memory,
-                        self.nmap.c_t,
+                        self.nmap.c_t_out,
                         self.nmap.ctx_state_tuple_out,
                         self.neglogp,
                     ], feed_dict={
                 self.nmap.inputs: obs_img,
-                self.nmap.memory: shift_memory,
+                self.nmap.memory: memory,
                 self.nmap.pos: info['curr_loc'],
                 self.nmap.p_pos: info['past_loc'],
                 self.nmap.timestep: [[t[0] % self.max_timestep] for t in info['step_counter']],
@@ -133,7 +134,7 @@ class NeuralMapPolicy(object):
 
     def get_initial_state(self,nenv):
         initial_memory = np.zeros((nenv, self.args['memory_channels'], self.args['memory_size'], self.args['memory_size']))
-        initial_old_c_t = np.zeros((nenv, 1, self.args['memory_channels']))
+        initial_old_c_t = np.zeros((nenv, self.args['memory_channels']))
         initial_ctx_state = (np.zeros((nenv, self.args['memory_channels'])), np.zeros((nenv, self.args['memory_channels'])))
         initial_state = (initial_memory, initial_old_c_t, initial_ctx_state)
         return initial_state
