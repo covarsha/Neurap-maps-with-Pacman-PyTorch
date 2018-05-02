@@ -47,9 +47,9 @@ def train(args, num_timesteps):
     #env = gym.make('BerkeleyPacmanPO-v0')
     args['max_maze_size'] = envobj.envs[0].MAX_MAZE_SIZE
     args['maze_size'] = envobj.envs[0].maze_size
-    ppo.learn(env=envobj, nsteps=500, nminibatches=1,
+    ppo.learn(env=envobj, nsteps=100, nminibatches=1,
         lam=0.95, gamma=0.99, noptepochs=4,
-        ent_coef=.01,
+        ent_coef=.1,
         lr=lambda f : f * args['lr'],
         cliprange=lambda f : f * 0.1,
         total_timesteps=int(num_timesteps * 1.1),
@@ -65,7 +65,7 @@ def test(args, num_timesteps):
     tf.Session(config=config).__enter__()
     num_sub_in_grp = 1
     seed=0
-    
+
     def make_env_vec():
         def make_env(seed_):
             env = gym.make(args['env'])
@@ -81,7 +81,7 @@ def test(args, num_timesteps):
     args['max_maze_size'] = envobj.envs[0].MAX_MAZE_SIZE
     args['maze_size'] = envobj.envs[0].maze_size
     ppo.learn(env=envobj, nsteps=1, nminibatches=1,
-        lam=0.95, gamma=0.99, noptepochs=1, 
+        lam=0.95, gamma=0.99, noptepochs=1,
         ent_coef=.01,
         lr=lambda f : f * 2.5e-4,
         cliprange=lambda f : f * 0.1,
@@ -174,8 +174,8 @@ def main(args):
     if args['test']:
         test(args, num_timesteps=10)
     else:
-        train(args, num_timesteps=1e5)
-    
+        train(args, num_timesteps=1e6)
+
 if __name__ == '__main__':
     main(sys.argv)
 

@@ -84,7 +84,7 @@ def context_network(args, s_t, r_t, memory, old_c_t, velocity, timestep, ctx_sta
         input_vec.append(r_t)
         input_vec.append(old_c_t)
         input_vec = tf.expand_dims(tf.concat(input_vec, 1), 1)
-        
+
         cont_hx, ctx_state_new_tuple = tf.nn.dynamic_rnn(ctx_lstm, input_vec,
                                         initial_state=ctx_state_tuple,
                                         dtype=tf.float32)
@@ -124,7 +124,7 @@ def write_network(args, s_t, r_t, c_t, memory, write_loc, nenv, reuse=False):
         old_write = memory[:,:,write_py,write_px]
         write_input = tf.expand_dims(tf.concat([s_t, r_t, c_t, old_write], axis=1), 1)
         write_update_gru = tf.contrib.rnn.GRUCell(write_output_size)
-        
+
         shape = tf.constant([nenv, args['memory_channels'], args['memory_size'], args['memory_size']])
 
         w_t, state = tf.nn.dynamic_rnn(write_update_gru,
@@ -152,34 +152,35 @@ def seq_to_batch(h, flat = False):
     else:
         return tf.reshape(tf.stack(values=h, axis=1), [-1])
 
-def model(args, nbatch, nsteps, reuse=False):
-    
+def get_model(args, nbatch, nsteps, inputs, memory, c_t, ctx_state_tuple,
+                    pos, p_pos, timestep, masks, reuse=False):
+
     nenv = nbatch // nsteps
-    
+
     write_loc = np.zeros((nenv * args['memory_channels'], 4), dtype=np.int32)
     write_loc = np.zeros((nenv * args['memory_channels'], 4), dtype=np.int32)
-    
+
     for e in range(nenv):
         for c in range(args['memory_channels']):
             write_loc[args['memory_channels'] * e + c, 0 ] = e
             write_loc[args['memory_channels'] * e + c, 1 ] = c
             write_loc[args['memory_channels'] * e + c, 2: ] = args['memory_size'] // 2
     write_loc = tf.constant(write_loc)
-    
+
     feats = []
     with tf.variable_scope("model", reuse=reuse):
         # nbatch x ?
         statenet_out = basenet(args, inputs)
         velocity = pos - p_pos
-        
-        
+
+
         s_ts = batch_to_seq(statenet_out, nenv, nsteps)
         vels = batch_to_seq(velocity, nenv, nsteps)
         timesteps = batch_to_seq(timestep, nenv, nsteps)
         masks = batch_to_seq(masks, nenv, nsteps)
-        
+
         sizes = tf.constant(np.tile([[nenv, args['memory_channels'], args['memory_size'], args['memory_size']]], [nenv, 1]))
-        
+
         i = 0
         for s_t, vel, tm, m in zip(s_ts, vels, timesteps, masks):
             net_reuse = i > 0
@@ -187,24 +188,25 @@ def model(args, nbatch, nsteps, reuse=False):
             vel = tf.cast(vel, tf.int32)
             for m_ix in range(nenv):
                 shifted_memories.append(tf.expand_dims(
-                    tf.slice(memory[m_ix, :, :, :] * (1 - m[m_ix]), 
-                             [0, vel[m_ix,0] + 1,vel[m_ix,1]], 
+                    tf.slice(memory[m_ix, :, :, :] * (1 - m[m_ix]),
+                             [0, vel[m_ix,0] + 1,vel[m_ix,1]],
                              [args['memory_channels'], args['memory_size'], args['memory_size']]
                         ), 0))
             memory = tf.concat(shifted_memories, axis=0, name='shifted_memory')
             r_t = read_network(args, memory, reuse=net_reuse)
-            
+
             # mask c_t
             c_t = c_t * (1 - m)
             ctx_state_tuple = tf.nn.rnn_cell.LSTMStateTuple(ctx_state_tuple[0] * (1 - m), ctx_state_tuple[1] * (1 - m))
-            
+
             c_t, cont_hx, ctx_state_tuple = context_network(args, s_t, r_t, memory, c_t, vel, tm, ctx_state_tuple, reuse=net_reuse)
             w_t, memory = write_network(args, s_t, r_t, c_t, memory, write_loc, nenv, reuse=net_reuse)
-            f_t = fc(
-                tf.concat([tf.squeeze(cont_hx,1), c_t, tf.squeeze(w_t, 1)], 1),
-                    args['memory_channels'],
-                    activation_fn=tf.nn.elu)
-            feats.append(f_t)
+            with tf.variable_scope('feats_network', reuse=net_reuse):
+                f_t = fc(
+                    tf.concat([tf.squeeze(cont_hx,1), c_t, tf.squeeze(w_t, 1)], 1),
+                        args['memory_channels'],
+                        activation_fn=tf.nn.elu)
+                feats.append(f_t)
             i += 1
         feats = seq_to_batch(feats)
     return memory, c_t, ctx_state_tuple, feats

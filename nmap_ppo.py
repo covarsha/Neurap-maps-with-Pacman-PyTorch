@@ -18,8 +18,8 @@ class NeuralMapModel(object):
         sess = tf.get_default_session()
 
         # pass in architecture and also change NeuralMapPolicy to take these arguments
-        act_model = NeuralMapPolicy(sess, ob_space, ac_space, nmap_args, False)
-        train_model = NeuralMapPolicy(sess, ob_space, ac_space, nmap_args, True)
+        act_model = NeuralMapPolicy(sess, ob_space, ac_space, nmap_args, nbatch_act, 1, False)
+        train_model = NeuralMapPolicy(sess, ob_space, ac_space, nmap_args, nbatch_train, nsteps, True)
         A = train_model.pdtype.sample_placeholder([None], name='A')
         ADV = tf.placeholder(tf.float32, [None], name='ADV')
         R = tf.placeholder(tf.float32, [None], name='R')
@@ -85,7 +85,7 @@ class NeuralMapModel(object):
             td_map[train_model.nmap.memory] = memory
             td_map[train_model.nmap.old_c_t] = old_c_t
             td_map[train_model.nmap.ctx_state_tuple] = ctx_state
-            
+
             return sess.run(
                 [pg_loss, vf_loss, entropy, approxkl, clipfrac, _train],
                 td_map
@@ -94,7 +94,7 @@ class NeuralMapModel(object):
         self.loss_names = ['policy_loss', 'value_loss', 'policy_entropy', 'approxkl', 'clipfrac']
 
         def save_model_weights(path):
-            # Helper function to save your model / weights. 
+            # Helper function to save your model / weights.
             saver = tf.train.Saver()
             save_path = saver.save(sess, path)
             print("Model saved in path: %s"%(save_path))
@@ -102,9 +102,9 @@ class NeuralMapModel(object):
             #ps = sess.run(params)
             #joblib.dump(ps, save_path)
         def load_model_weights(weights_file):
-            # Helper funciton to load model weights. 
+            # Helper funciton to load model weights.
             saver = tf.train.Saver()
-            saver.restore(sess, weights_file) 
+            saver.restore(sess, weights_file)
             print("Model restored from %s"%weights_file)
         # def load(load_path):
         #     loaded_params = joblib.load(load_path)
@@ -168,7 +168,7 @@ class Runner(object):
             self.obs = [self.obs, infos]
 
             mb_rewards.append(rewards)
-            
+
 
         # split into tuple of (np.array(state observations), list of dictionaries)
         mb_obs = (np.asarray([m[0] for m in mb_obs]), [m[1] for m in mb_obs])
@@ -243,7 +243,7 @@ def learn(*, env, nsteps, total_timesteps, ent_coef, lr, nmap_args,
                     nsteps=nsteps, ent_coef=ent_coef, vf_coef=vf_coef,
                     nmap_args=nmap_args,
                     max_grad_norm=max_grad_norm)
-    
+
     model = make_model()
     runner = Runner(env=env, model=model, nsteps=nsteps, gamma=gamma, lam=lam)
     if load==None:
@@ -252,7 +252,7 @@ def learn(*, env, nsteps, total_timesteps, ent_coef, lr, nmap_args,
             #import cloudpickle
             #with open(osp.join(nmap_args['savepath'], 'make_model.pkl'), 'wb') as fh:
                 #fh.write(cloudpickle.dumps(make_model))
-                
+
         epinfobuf = deque(maxlen=100)
         tfirststart = time.time()
 
@@ -326,7 +326,7 @@ def learn(*, env, nsteps, total_timesteps, ent_coef, lr, nmap_args,
                 model.save(path=savepath)
     else:
         model.load(load)
-        
+
         epinfobuf = deque(maxlen=100)
         rewards_list=[]
         nupdates = total_timesteps//nbatch
@@ -343,7 +343,7 @@ def learn(*, env, nsteps, total_timesteps, ent_coef, lr, nmap_args,
             frac = 1.0 - (update - 1.0) / nupdates
             lrnow = lr(frac)
             cliprangenow = cliprange(frac)
-            
+
             mb_rewards = []
             while not dones[-1]:
                 actions, values, mem, old_c_t, ctx_state, neglogpacs = model.step(obs, states, dones)
@@ -380,7 +380,7 @@ class PacmanDummyVecEnv(DummyVecEnv):
                     self.buf_obs[t][i] = x
             else:
                 self.buf_obs[0][i] = obs_tuple
-        
+
         self.info = self.buf_infos[0]
         for i in range(1, self.num_envs):
             for k in self.buf_infos[i]:

@@ -44,6 +44,7 @@ class NeuralMap(object):
         # Supported write types
         assert((self.write_type == 'gru') or (self.write_type == 'lstm'))
 
+        nenv = nbatch // nsteps
         self.memory = tf.placeholder(tf.float32,
             shape=[nenv, args['memory_channels'],
                 args['memory_size'],
@@ -52,7 +53,7 @@ class NeuralMap(object):
         )
         self.old_c_t = tf.placeholder(tf.float32, shape=[nenv, args['memory_channels']], name='old_c_t')
         self.ctx_state_input = tf.placeholder(tf.float32, [2, nenv, args['memory_channels']], name='ctx_state_input')
-        self.ctx_state_tuple = tf.nn.rnn_cell.LSTMStateTuple(ctx_state_input[0], ctx_state_input[1])
+        self.ctx_state_tuple = tf.nn.rnn_cell.LSTMStateTuple(self.ctx_state_input[0], self.ctx_state_input[1])
         self.inputs = tf.placeholder(tf.float32,
                     shape=[nbatch] + args['input_dims'],
                     name='inputs')
@@ -61,16 +62,16 @@ class NeuralMap(object):
         self.timestep = tf.placeholder(tf.int64, shape=[nbatch, 1], name='timestep')
         self.masks = tf.placeholder(tf.float32, shape=[nbatch, 1], name='masks')
 
-        self.memory_out, self.c_t_out, self.ctx_state_tuple_out, self.feats_out = get_model(args, nbatch, nsteps,
+        self.memory_out, self.c_t_out, self.ctx_state_tuple_out, self.feats = get_model(args, nbatch, nsteps,
             self.inputs, self.memory, self.old_c_t, self.ctx_state_tuple,
-            self.pos, self.p_pos, self.timestep, reuse=reuse)
+            self.pos, self.p_pos, self.timestep, self.masks, reuse=reuse)
 
 
 
 class NeuralMapPolicy(object):
     def __init__(self, sess, ob_space, ac_space, args, nbatch, nsteps, reuse=False):
         with tf.variable_scope('model', reuse=reuse):
-            self.nmap = NeuralMap(args)
+            self.nmap = NeuralMap(args, nbatch, nsteps)
             self.pi = fc(
                 self.nmap.feats,
                 ac_space.n,
