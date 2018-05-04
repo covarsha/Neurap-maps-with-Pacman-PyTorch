@@ -115,7 +115,7 @@ def context_network(args, s_t, r_t, memory, old_c_t, velocity, timestep, ctx_sta
             axis=2
         )
 
-    return c_t, cont_hx, ctx_state_new_tuple
+    return c_t, cont_hx, ctx_state_new_tuple, context_prob
 
 def write_network(args, s_t, r_t, c_t, memory, write_loc, nenv, reuse=False):
     with tf.variable_scope('writenet', reuse=reuse):
@@ -200,7 +200,7 @@ def get_model(args, nbatch, nsteps, inputs, memory, c_t, ctx_state_tuple,
             c_t = c_t * (1 - m)
             ctx_state_tuple = tf.nn.rnn_cell.LSTMStateTuple(ctx_state_tuple[0] * (1 - m), ctx_state_tuple[1] * (1 - m))
 
-            c_t, cont_hx, ctx_state_tuple = context_network(args, s_t, r_t, memory, c_t, vel, tm, ctx_state_tuple, reuse=net_reuse)
+            c_t, cont_hx, ctx_state_tuple, context_prob = context_network(args, s_t, r_t, memory, c_t, vel, tm, ctx_state_tuple, reuse=net_reuse)
             w_t, memory = write_network(args, s_t, r_t, c_t, memory, write_loc, nenv, reuse=net_reuse)
             with tf.variable_scope('feats_network', reuse=net_reuse):
                 f_t = fc(
@@ -210,4 +210,5 @@ def get_model(args, nbatch, nsteps, inputs, memory, c_t, ctx_state_tuple,
                 feats.append(f_t)
             i += 1
         feats = seq_to_batch(feats)
-    return memory, c_t, ctx_state_tuple, feats
+    # only need context_prob step by step, so this is fine.
+    return memory, c_t, ctx_state_tuple, feats, context_prob

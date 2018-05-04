@@ -11,6 +11,7 @@ from baselines.common.vec_env.dummy_vec_env import DummyVecEnv
 import pdb
 from nmap import NeuralMapPolicy
 from PIL import Image
+import matplotlib.pyplot as plt
 
 class NeuralMapModel(object):
     def __init__(self, *, ob_space, ac_space, nbatch_act, nbatch_train,
@@ -132,8 +133,9 @@ class NeuralMapModel(object):
 
 class Runner(object):
 
-    def __init__(self, *, env, model, nsteps, gamma, lam):
+    def __init__(self, *, env, vizenv, model, nsteps, gamma, lam):
         self.env = env
+        self.vizenv = vizenv
         self.model = model
         nenv = env.num_envs
         self.nenv = nenv
@@ -143,7 +145,39 @@ class Runner(object):
         self.lam = lam
         self.nsteps = nsteps
         self.states = model.initial_state
+        self.initstate = model.initial_state
         self.dones = [False for _ in range(nenv)]
+
+    def visualize(self, update, savepath):
+        states = self.initstate
+        dones = [False for _ in range(self.nenv)]
+        obs = self.vizenv.reset()
+        info = self.vizenv.initial_info()
+        obs = [obs, info]
+        for ix in range(200):
+            actions, states, c_t_norm = self.model.act_model.vizstep(obs, states,dones)
+            import os
+            folder = '%s/update-%d' % (savepath, update)
+            os.system('mkdir -p %s' % folder)
+            obs_im_ = obs[0]
+            obs_im = np.zeros((obs_im_.shape[0] * obs_im_.shape[1], obs_im_.shape[2], obs_im_.shape[3]))
+            for i, o in enumerate(np.split(obs_im_, obs_im_.shape[0])):
+                obs_im[84*i:84*(i+1), :, :] = o
+            im = Image.fromarray(obs_im.astype(np.uint8))
+            im.save('%s/state-%d.png' % (folder, ix))
+            c_t_norm = np.reshape(c_t_norm, (c_t_norm.shape[0], 14,14)) # HARDCODED! why 784 tho
+            c_t_ = np.zeros((c_t_norm.shape[0] * c_t_norm.shape[1], c_t_norm.shape[2]))
+            for i, o in enumerate(np.split(c_t_norm, c_t_norm.shape[0])):
+                c_t_[c_t_norm.shape[1]*i:c_t_norm.shape[1]*(i+1), :] = o
+            plt.figure()
+            plt.imshow(c_t_)
+            plt.colorbar()
+            plt.savefig('%s/ctx-%d.png' % (folder, ix))
+            np.save('%s/ctx-%d' % (folder, ix), c_t_)
+            plt.close()
+            # c_t_im = Image.fromarray(c_t_.astype(np.uint8))
+            # c_t_im.save('%s/ctx-%d.png' % (folder, ix))
+
 
     def run(self):
         mb_obs, mb_rewards, mb_actions, mb_values, mb_dones, mb_neglogpacs = [],[],[],[],[],[]
@@ -164,7 +198,6 @@ class Runner(object):
                 epinfos.extend(epinfo_)
 
             # mask and return model states
-            self.states = self.model.act_model.get_initial_state(self.nenv)
             self.obs = [self.obs, infos]
 
             mb_rewards.append(rewards)
@@ -223,7 +256,7 @@ def constfn(val):
         return val
     return f
 
-def learn(*, env, nsteps, total_timesteps, ent_coef, lr, nmap_args,
+def learn(*, env, vizenv, nsteps, total_timesteps, ent_coef, lr, nmap_args,
             vf_coef=0.5,  max_grad_norm=0.5, gamma=0.99, lam=0.95,
              nminibatches=4, noptepochs=1, cliprange=0.2,
             log_interval=1, save_interval=10,load=None):
@@ -245,7 +278,7 @@ def learn(*, env, nsteps, total_timesteps, ent_coef, lr, nmap_args,
                     max_grad_norm=max_grad_norm)
 
     model = make_model()
-    runner = Runner(env=env, model=model, nsteps=nsteps, gamma=gamma, lam=lam)
+    runner = Runner(env=env, vizenv=vizenv, model=model, nsteps=nsteps, gamma=gamma, lam=lam)
     if load==None:
         print("""Will save in %s""" % nmap_args['savepath'])
         #if save_interval and nmap_args['savepath']:
@@ -299,10 +332,6 @@ def learn(*, env, nsteps, total_timesteps, ent_coef, lr, nmap_args,
                         mb_states = (states[0][mbenvinds], states[1][mbenvinds], (states[2][0][mbenvinds], states[2][1][mbenvinds]))
 
                         mblossvals.append(model.train(lrnow, cliprangenow, *slices, mb_states))
-
-
-
-
             lossvals = np.mean(mblossvals, axis=0)
             tnow = time.time()
             fps = int(nbatch / (tnow - tstart))
@@ -325,10 +354,11 @@ def learn(*, env, nsteps, total_timesteps, ent_coef, lr, nmap_args,
                 savepath = osp.join(checkdir, '%.5i'%update)
                 print('Saving to', savepath)
                 model.save(path=savepath)
+            runner.visualize(update, savepath)
     else:
         model.load(load)
 
-        epinfobuf = deque(maxlen=100)
+        epinfobuf = deque(maxlen=20)
         rewards_list=[]
         nupdates = total_timesteps//nbatch
         for update in range(1, nupdates+1):

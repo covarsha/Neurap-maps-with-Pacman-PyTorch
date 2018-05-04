@@ -63,7 +63,7 @@ class NeuralMap(object):
         self.masks = tf.placeholder(tf.float32, shape=[nbatch,], name='masks')
 
 
-        self.memory_out, self.c_t_out, self.ctx_state_tuple_out, self.feats = get_model(args, nbatch, nsteps,
+        self.memory_out, self.c_t_out, self.ctx_state_tuple_out, self.feats, self.ctx_prob = get_model(args, nbatch, nsteps,
             self.inputs, self.memory, self.old_c_t, self.ctx_state_tuple,
             self.pos, self.p_pos, self.timestep, self.masks, reuse=reuse)
 
@@ -114,6 +114,30 @@ class NeuralMapPolicy(object):
             })
             return a, v0, (new_memory, c_t, c_new), neglogp
 
+
+        def vizstep(obs, state, done):
+            obs_img, info = obs
+            memory, old_c_t, ctx_state = state
+
+            # shift memory first
+            a, new_memory, c_t, c_new, ctx_prob  = sess.run([
+                        self.A,
+                        self.nmap.memory,
+                        self.nmap.c_t_out,
+                        self.nmap.ctx_state_tuple_out,
+                        self.nmap.ctx_prob
+                    ], feed_dict={
+                self.nmap.inputs: obs_img,
+                self.nmap.memory: memory,
+                self.nmap.pos: info['curr_loc'],
+                self.nmap.p_pos: info['past_loc'],
+                self.nmap.timestep: [[t[0] % self.max_timestep] for t in info['step_counter']],
+                self.nmap.old_c_t: old_c_t,
+                self.nmap.ctx_state_tuple: ctx_state,
+                self.nmap.masks: done
+            })
+            return a, (new_memory, c_t, c_new), ctx_prob
+
         def value(obs, state, done):
             obs_img, info = obs
             memory, old_c_t, ctx_state = state
@@ -130,6 +154,7 @@ class NeuralMapPolicy(object):
                 self.nmap.masks: done
             })
         self.step = step
+        self.vizstep = vizstep
         self.value = value
 
     def get_initial_state(self,nenv):

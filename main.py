@@ -44,12 +44,13 @@ def train(args, num_timesteps):
         return ppo.PacmanDummyVecEnv([make_env(ix) for ix in range(num_sub_in_grp)])
 
     envobj = make_env_vec()
+    vizenvobj = make_env_vec()
     #env = gym.make('BerkeleyPacmanPO-v0')
     args['max_maze_size'] = envobj.envs[0].MAX_MAZE_SIZE
     args['maze_size'] = envobj.envs[0].maze_size
-    ppo.learn(env=envobj, nsteps=500, nminibatches=1,
+    ppo.learn(env=envobj, vizenv=vizenvobj, nsteps=200, nminibatches=1,
         lam=0.95, gamma=0.99, noptepochs=4,
-        ent_coef=.1,
+        ent_coef=.01,
         lr=lambda f : f * args['lr'],
         cliprange=lambda f : f * 0.1,
         total_timesteps=int(num_timesteps * 1.1),
@@ -81,8 +82,8 @@ def test(args, num_timesteps):
     args['max_maze_size'] = envobj.envs[0].MAX_MAZE_SIZE
     args['maze_size'] = envobj.envs[0].maze_size
     ppo.learn(env=envobj, nsteps=1, nminibatches=1,
-        lam=0.95, gamma=0.99, noptepochs=1,
-        ent_coef=.01,
+        lam=0.95, gamma=0.99, noptepochs=4,
+        ent_coef=.1,
         lr=lambda f : f * 2.5e-4,
         cliprange=lambda f : f * 0.1,
         total_timesteps=int(num_timesteps * 1.1),
@@ -93,7 +94,7 @@ def parse_arguments():
     parser = argparse.ArgumentParser(description='Neural Map Argument Parser')
     parser.add_argument('--nmapw_nl',dest='nmapw_nl',type=str, default='gru')
     parser.add_argument('--memory_size',dest='memory_size',type=int, default=14)
-    parser.add_argument('--memory_channels',dest='memory_channels',type=int, default=256)
+    parser.add_argument('--memory_channels',dest='memory_channels',type=int, default=128)
     parser.add_argument('--rescale_max',dest='rescale_max',type=bool, default=False)
     parser.add_argument('--egocentric',dest='egocentric',type=bool, default=True)
     parser.add_argument('--access_orient',dest='access_orient',type=bool, default=False)
